@@ -317,7 +317,8 @@ async function initFirebaseSync() {
         firebaseConnected = true;
         firebaseStatusMessage = "Connected";
         if (!snapshot.exists) return;
-        const remoteData = snapshot.data()?.data;
+        const remotePayload = snapshot.data()?.payload;
+        const remoteData = remotePayload ? JSON.parse(remotePayload) : snapshot.data()?.data;
         if (!remoteData?.teams || !remoteData?.players || !remoteData?.matches) return;
         applyingFirebaseData = true;
         data = normalizeData(remoteData);
@@ -355,13 +356,15 @@ async function pushFirebaseData() {
       if (!ready || !firebaseDoc) return false;
     }
     const cleanData = JSON.parse(JSON.stringify(data));
-    const bytes = new Blob([JSON.stringify(cleanData)]).size;
+    const payload = JSON.stringify(cleanData);
+    const bytes = new Blob([payload]).size;
     if (bytes > 850000) {
       toast("Online data is too large. Move uploaded logos to GitHub assets and use ./assets/logo-name.png paths, then publish again.");
       return false;
     }
     await firebaseDoc.set({
-      data: cleanData,
+      payload,
+      data: window.firebase.firestore.FieldValue.delete(),
       updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     firebaseConnected = true;
