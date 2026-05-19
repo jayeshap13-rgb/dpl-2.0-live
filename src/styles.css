@@ -2281,6 +2281,29 @@ h3 {
     gap: 1.75rem;
     grid-template-columns: 1fr;
   }
+  .team-sponsor-wall.count-2,
+  .team-sponsor-wall.count-3,
+  .team-sponsor-wall.count-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .team-sponsor-wall {
+    align-items: start;
+  }
+  .team-sponsor-wall .sponsor-tile {
+    gap: 0.08rem;
+    min-width: 0;
+  }
+  .team-sponsor-wall .sponsor-tile img,
+  .team-sponsor-wall .sponsor-tile > span {
+    width: min(130px, 39vw);
+  }
+  .team-sponsor-wall .sponsor-tile small {
+    font-size: 0.68rem;
+  }
+  .team-sponsor-wall .sponsor-tile strong {
+    font-size: 0.82rem;
+    line-height: 1.05;
+  }
   .player-summary {
     gap: 0.45rem;
     grid-template-columns: minmax(0, 1fr) auto;
