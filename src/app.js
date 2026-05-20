@@ -91,7 +91,7 @@ function freshMatch(id, week, teamAId, teamBId) {
     tossWinnerId: teamAId, tossChoice: "bat", battingTeamId: teamAId, bowlingTeamId: teamBId, innings: 1, currentDay: "Wednesday", powerplay: true, battingPowerplayDay: "Wednesday",
     secretImposterId: "", secretImpostersByTeam: {}, openers: [], selectedBowlers: [], teamSetups: {}, allOut: false, allOutByTeam: {}, winnerId: "", playerOfMatchId: "", matchMvpId: "",
     startAt: "", completedAt: "", firstInningsRuns: "",
-    extras: 0, extrasByTeam: {}, batting: {}, bowling: {}, commentary: [
+    extras: 0, extrasByTeam: {}, batting: {}, bowling: {}, bowlingTracker: {}, commentary: [
       { time: "00.1", text: "DPL 2.0 begins with a bright start and the live desk is awake." },
       { time: "00.0", text: "Toss done. Captains are in. Opening pair selected from admin." },
     ],
@@ -111,6 +111,7 @@ let statsScope = sessionStorage.getItem("dpl2-stats-scope") || "season";
 let statsSearch = sessionStorage.getItem("dpl2-stats-search") || "";
 let homeCommentaryPopShown = false;
 let liveFormMemory = JSON.parse(sessionStorage.getItem("dpl2-live-form-memory") || "{}");
+let adminCollapsed = JSON.parse(sessionStorage.getItem("dpl2-admin-collapsed") || "{}");
 let firebaseDoc = null;
 let firebaseSaveTimer = null;
 let applyingFirebaseData = false;
@@ -239,6 +240,7 @@ function normalizeData(saved) {
   if (lateRule) lateRule[3] = -6;
   normalized.matches.forEach((match) => {
     match.extrasByTeam ||= {};
+    match.bowlingTracker ||= {};
     match.allOutByTeam ||= {};
     if (match.allOut && match.battingTeamId && !Object.keys(match.allOutByTeam).length) {
       match.allOutByTeam[match.battingTeamId] = true;
@@ -683,11 +685,12 @@ function battingEventOptions(match, playerId = "", selected = "") {
   }).join("");
 }
 function battingAdminEventList(match) {
+  const collapsed = adminCollapsed[`${match.id}:battingEntries`] !== false;
   const events = battingAdminEvents(match).slice(0, 16);
-  return events.length ? `<div class="admin-event-list">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
+  return `<div class="collapsible-head"><button class="button small" type="button" data-action="toggle-admin-collapse" data-key="${match.id}:battingEntries">${collapsed ? "Show" : "Hide"} Batting Entries (${events.length})</button></div>${events.length ? `<div class="admin-event-list ${collapsed ? "collapsed" : ""}">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
     <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / Qty ${esc(event.qty || 1)} / ${esc(event.activityDay || "-")} / ${esc(event.summary || "")}</small></span>
     <span class="row-actions"><button class="button small" data-action="edit-batting-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-batting-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
-  </div>`).join("")}</div>` : `<p class="muted">No batting scoring entries yet.</p>`;
+  </div>`).join("")}</div>` : `<p class="muted">No batting scoring entries yet.</p>`}`;
 }
 function bowlingAdminEventList(match) {
   const events = bowlingAdminEvents(match).slice(0, 16);
@@ -695,6 +698,74 @@ function bowlingAdminEventList(match) {
     <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / ${esc(event.bowlingDay || "-")} / ${esc(event.wickets || 0)} W / ${esc(event.runs || 0)} R${event.targetId ? ` / Target ${esc(playerName(event.targetId))}` : ""}</small></span>
     <span class="row-actions"><button class="button small" data-action="edit-bowling-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-bowling-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
   </div>`).join("")}</div>` : `<p class="muted">No bowling impact entries yet.</p>`;
+}
+function bowlingTrackingRecord(match, teamId, day, playerId) {
+  match.bowlingTracker ||= {};
+  match.bowlingTracker[teamId] ||= {};
+  match.bowlingTracker[teamId][day] ||= {};
+  match.bowlingTracker[teamId][day][playerId] ||= { oneToOnes: 0, referrals: 0, paidVisitors: 0, tyfcbLakhs: 0 };
+  return match.bowlingTracker[teamId][day][playerId];
+}
+function bowlingTrackingRows(match, teamId, day = "") {
+  const teamTracker = match.bowlingTracker?.[teamId] || {};
+  return Object.entries(teamTracker).flatMap(([trackedDay, players]) => {
+    if (day && trackedDay !== day) return [];
+    return Object.entries(players || {}).map(([playerId, row]) => ({ day: trackedDay, playerId, row }));
+  }).filter(({ row }) => Number(row.oneToOnes || 0) || Number(row.referrals || 0) || Number(row.paidVisitors || 0) || Number(row.tyfcbLakhs || 0));
+}
+function bowlingClaimSummary(match, teamId) {
+  const rows = bowlingTrackingRows(match, teamId);
+  const totalsByPlayer = {};
+  rows.forEach(({ playerId, row }) => {
+    totalsByPlayer[playerId] ||= { oneToOnes: 0, referrals: 0, paidVisitors: 0, tyfcbLakhs: 0 };
+    totalsByPlayer[playerId].oneToOnes += Number(row.oneToOnes || 0);
+    totalsByPlayer[playerId].referrals += Number(row.referrals || 0);
+    totalsByPlayer[playerId].paidVisitors += Number(row.paidVisitors || 0);
+    totalsByPlayer[playerId].tyfcbLakhs += Number(row.tyfcbLakhs || 0);
+  });
+  const totals = Object.values(totalsByPlayer);
+  const referralOr121Members = totals.filter((row) => row.referrals >= 2 || row.oneToOnes >= 2).length;
+  const paidVisitorMembers = totals.filter((row) => row.paidVisitors >= 1).length;
+  const allCriteriaPlayers = Object.entries(totalsByPlayer).filter(([, row]) => row.oneToOnes > 0 && row.referrals > 0 && row.paidVisitors > 0 && row.tyfcbLakhs > 0).map(([playerId]) => playerId);
+  const messages = [];
+  if (referralOr121Members >= 6) messages.push({ wickets: 1, text: `${referralOr121Members}/9 members completed 2 referrals or 2 1-2-1s. Team can claim 1 specific wicket.` });
+  else messages.push({ wickets: 0, text: `${referralOr121Members}/9 members have 2 referrals or 2 1-2-1s. Need ${Math.max(0, 6 - referralOr121Members)} more for 1 wicket claim.` });
+  if (paidVisitorMembers >= 6) messages.push({ wickets: 3, text: `${paidVisitorMembers}/9 members registered a paid visitor. Team can claim 3 specific wickets.` });
+  else messages.push({ wickets: 0, text: `${paidVisitorMembers}/9 members registered a paid visitor. Need ${Math.max(0, 6 - paidVisitorMembers)} more for 3 wicket claim.` });
+  if (allCriteriaPlayers.length) {
+    messages.push({ wickets: allCriteriaPlayers.length * 2, text: `${allCriteriaPlayers.map(playerName).join(", ")} completed all tracked bowling-day criteria. Claim 2 specific wickets per qualifying bowler.` });
+  } else {
+    messages.push({ wickets: 0, text: "No bowler has completed all tracked criteria yet for the 2-wicket claim." });
+  }
+  return { referralOr121Members, paidVisitorMembers, allCriteriaPlayers, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
+}
+function bowlingTrackerPanel(match) {
+  const memory = liveMemory(match, "bowlingTracker");
+  const day = memory.day || match.currentDay || "Wednesday";
+  const playerId = memory.playerId || "";
+  const current = playerId ? bowlingTrackingRecord(match, match.bowlingTeamId, day, playerId) : {};
+  const claim = bowlingClaimSummary(match, match.bowlingTeamId);
+  const rows = bowlingTrackingRows(match, match.bowlingTeamId, day);
+  return `<div class="card" id="admin-bowling-tracker">
+    <h3>Bowling Claim Tracker</h3>
+    <div class="claim-box">
+      <strong>${esc(teamName(match.bowlingTeamId))} claim status</strong>
+      ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
+    </div>
+    <form class="grid" data-form="bowling-tracker">
+      <input type="hidden" name="matchId" value="${match.id}">
+      <label>Bowling day<select name="day">${dayOptions(day)}</select></label>
+      <label>Member<select name="playerId">${playerOptions(playerId, match.bowlingTeamId)}</select></label>
+      <label>1-2-1s<input name="oneToOnes" type="number" min="0" step="1" value="${esc(current.oneToOnes || 0)}"></label>
+      <label>Referrals<input name="referrals" type="number" min="0" step="1" value="${esc(current.referrals || 0)}"></label>
+      <label>Paid Visitor Registered<input name="paidVisitors" type="number" min="0" step="1" value="${esc(current.paidVisitors || 0)}"></label>
+      <label>TYFCB Of Rs 1 Lakh<input name="tyfcbLakhs" type="number" min="0" step="1" value="${esc(current.tyfcbLakhs || 0)}"></label>
+      <button class="button purple">Save Tracking</button>
+    </form>
+    <div class="mini-list" style="margin-top:.85rem">
+      ${rows.length ? rows.map(({ playerId: rowPlayerId, row }) => `<div class="list-item"><span><strong>${esc(playerName(rowPlayerId))}</strong><small class="muted"> 1-2-1: ${esc(row.oneToOnes || 0)} / Ref: ${esc(row.referrals || 0)} / Paid: ${esc(row.paidVisitors || 0)} / TYFCB: ${esc(row.tyfcbLakhs || 0)}</small></span></div>`).join("") : `<div class="empty">No tracking added for ${esc(shortDay(day))} yet.</div>`}
+    </div>
+  </div>`;
 }
 function teamOptions(selected = "") {
   return `<option value="">Select team</option>${data.teams.map((t) => `<option value="${t.id}" ${t.id === selected ? "selected" : ""}>${esc(t.name)}</option>`).join("")}`;
@@ -1556,6 +1627,7 @@ function liveAdmin() {
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-match-state">Match</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-batting-score">Batting</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-bowling-score">Bowling</button>
+      <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-bowling-tracker">Claims</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-bonuses">Bonus</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-wickets">Wickets</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-complete">Finish</button>
@@ -1594,9 +1666,12 @@ function liveAdmin() {
           <button class="button small purple" data-action="toggle-out" data-match="${match.id}" data-player="${p.id}">${row.out ? "Undo out" : "Mark out"}</button>
         </div>`;
       }).join("")}</div><button class="button danger" data-action="all-out" data-match="${match.id}" style="margin-top:.75rem">Mark Team All Out</button></div>
-      <div class="card" id="admin-complete"><h3>Complete Match</h3><form class="grid" data-form="complete-match"><input type="hidden" name="matchId" value="${match.id}"><label>Winner<select name="winnerId">${matchTeamOptions(match, match.winnerId)}</select></label><label>Match MVP<select name="matchMvpId">${matchPlayerOptions(match, match.matchMvpId)}</select></label><label>Player of the Match<select name="playerOfMatchId">${matchPlayerOptions(match, match.playerOfMatchId)}</select></label><label>Match start date and time<input name="startAt" type="datetime-local" value="${esc(dateTimeInputValue(match.startAt))}"></label><label>Match end date and time<input name="completedAt" type="datetime-local" value="${esc(dateTimeInputValue(match.completedAt))}"></label><button class="button green">Complete and Move to Results</button></form><button class="button small" data-action="open-scorecard" data-id="${match.id}" style="margin-top:.75rem">Preview Scorecard</button></div>
+      ${bowlingTrackerPanel(match)}
     </div>
-    <div class="card" id="admin-commentary"><h3>Edit Commentary</h3><form class="grid" data-form="commentary"><input type="hidden" name="matchId" value="${match.id}"><label>Ball / Time<input name="time" placeholder="12.4"></label><label>Commentary<textarea name="text" placeholder="Add match event"></textarea></label><button class="button primary">Add Commentary</button></form><div class="commentary" style="margin-top:1rem">${commentaryHtml(match)}</div></div>
+    <div class="grid two">
+      <div class="card" id="admin-complete"><h3>Complete Match</h3><form class="grid" data-form="complete-match"><input type="hidden" name="matchId" value="${match.id}"><label>Winner<select name="winnerId">${matchTeamOptions(match, match.winnerId)}</select></label><label>Match MVP<select name="matchMvpId">${matchPlayerOptions(match, match.matchMvpId)}</select></label><label>Player of the Match<select name="playerOfMatchId">${matchPlayerOptions(match, match.playerOfMatchId)}</select></label><label>Match start date and time<input name="startAt" type="datetime-local" value="${esc(dateTimeInputValue(match.startAt))}"></label><label>Match end date and time<input name="completedAt" type="datetime-local" value="${esc(dateTimeInputValue(match.completedAt))}"></label><button class="button green">Complete and Move to Results</button></form><button class="button small" data-action="open-scorecard" data-id="${match.id}" style="margin-top:.75rem">Preview Scorecard</button></div>
+      <div class="card" id="admin-commentary"><h3>Edit Commentary</h3><form class="grid" data-form="commentary"><input type="hidden" name="matchId" value="${match.id}"><label>Ball / Time<input name="time" placeholder="12.4"></label><label>Commentary<textarea name="text" placeholder="Add match event"></textarea></label><button class="button primary">Add Commentary</button></form><div class="commentary" style="margin-top:1rem">${commentaryHtml(match)}</div></div>
+    </div>
   </div>`;
 }
 function teamsAdmin() {
@@ -2349,6 +2424,20 @@ async function handleForm(event) {
     addAutoCommentary(match, `${playerName(bowlerId)} ${editEventId ? "updates" : "applies"} ${rule[1]}${bowlingDay ? ` on ${bowlingDay}` : ""}${targetId ? ` and targets ${playerName(targetId)}` : ""}: ${rule[2]} wicket impact, ${rule[3]} run impact.`);
     saveData(); render();
   }
+  if (type === "bowling-tracker") {
+    const match = byId(data.matches, fd.get("matchId"));
+    const day = fd.get("day") || match.currentDay || "Wednesday";
+    const playerId = fd.get("playerId");
+    if (!playerId || !teamPlayers(match.bowlingTeamId).some((player) => player.id === playerId)) return toast("Select a member from the bowling team");
+    const row = bowlingTrackingRecord(match, match.bowlingTeamId, day, playerId);
+    row.oneToOnes = Number(fd.get("oneToOnes") || 0);
+    row.referrals = Number(fd.get("referrals") || 0);
+    row.paidVisitors = Number(fd.get("paidVisitors") || 0);
+    row.tyfcbLakhs = Number(fd.get("tyfcbLakhs") || 0);
+    rememberLiveForm(match.id, "bowlingTracker", { day, playerId });
+    const claim = bowlingClaimSummary(match, match.bowlingTeamId);
+    saveData(); toast(`Tracking saved. Claimable wickets shown: ${claim.totalClaimWickets}`); render();
+  }
   if (type === "bowling-bonus") {
     const match = byId(data.matches, fd.get("matchId"));
     const bowlerId = fd.get("playerId");
@@ -2495,6 +2584,17 @@ function handleChange(event) {
     });
     return;
   }
+  const bowlingTrackerForm = event.target.closest('form[data-form="bowling-tracker"]');
+  if (bowlingTrackerForm && ["day", "playerId"].includes(event.target.name)) {
+    if (!requireAdmin()) return;
+    const matchId = bowlingTrackerForm.matchId?.value || activeAdminMatch()?.id;
+    rememberLiveForm(matchId, "bowlingTracker", {
+      day: bowlingTrackerForm.day?.value || "",
+      playerId: bowlingTrackerForm.playerId?.value || "",
+    });
+    render();
+    return;
+  }
   const playerTeamSelect = event.target.closest('[data-action="select-admin-player-team"]');
   if (playerTeamSelect) {
     if (!requireAdmin()) return;
@@ -2591,7 +2691,7 @@ function handleClick(event) {
   const action = el.dataset.action;
   const adminActions = new Set([
     "admin-tab", "add-extra", "toggle-out", "all-out",
-    "scroll-admin-section",
+    "scroll-admin-section", "toggle-admin-collapse",
     "edit-batting-event", "delete-batting-event", "edit-bowling-event", "delete-bowling-event",
     "edit-team", "edit-player", "edit-match", "edit-criteria", "edit-sponsor",
     "delete-team", "delete-player", "delete-match", "delete-criteria", "delete-sponsor",
@@ -2609,6 +2709,11 @@ function handleClick(event) {
     const target = document.getElementById(el.dataset.target);
     target?.classList.add("admin-live-expanded");
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  if (action === "toggle-admin-collapse") {
+    adminCollapsed[el.dataset.key] = adminCollapsed[el.dataset.key] === false;
+    sessionStorage.setItem("dpl2-admin-collapsed", JSON.stringify(adminCollapsed));
+    render();
   }
   if (action === "add-extra") {
     const match = byId(data.matches, el.dataset.match);
