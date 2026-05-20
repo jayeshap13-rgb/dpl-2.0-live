@@ -640,7 +640,7 @@ function tossText(match) {
 function teamBadge(teamId) {
   const team = byId(data.teams, teamId);
   const logo = publicLogoPath(team?.logo || "");
-  return `<span class="team-logo ${logo ? "has-logo" : ""}" style="--team:${team?.color || "#ff8a1f"};${logoScaleStyle(team?.logoSize)}">${logo ? `<img src="${esc(logo)}" alt="${esc(team.name)} logo">` : esc(initials(team?.name || teamId))}</span>`;
+  return `<span class="team-logo ${logo ? "has-logo" : ""}" style="--team:${team?.color || "#ff8a1f"};${logoScaleStyle(team?.logoSize)}">${logo ? `<img src="${esc(logo)}" alt="${esc(team.name)} logo" onerror="this.remove();this.parentElement.classList.remove('has-logo');this.parentElement.textContent='${esc(initials(team?.name || teamId))}'">` : esc(initials(team?.name || teamId))}</span>`;
 }
 function playerOptions(selected = "", teamId = "") {
   const players = teamId ? teamPlayers(teamId) : data.players;
@@ -762,7 +762,7 @@ function bowlingRows(match) {
 function sponsorLogo(item) {
   const logo = publicLogoPath(item?.logo || "");
   const style = logoScaleStyle(item?.logoSize);
-  if (logo) return `<img class="sponsor-logo-img" style="${style}" src="${esc(logo)}" alt="${esc(item.name)} logo">`;
+  if (logo) return `<img class="sponsor-logo-img" style="${style}" src="${esc(logo)}" alt="${esc(item.name)} logo" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'sponsor-logo-fallback',textContent:'${esc(initials(item?.name || "SP"))}'}))">`;
   return `<span class="sponsor-logo-fallback" style="${style}">${esc(initials(item?.name || "SP"))}</span>`;
 }
 function sponsorRibbon() {
@@ -1155,6 +1155,11 @@ function leader(rows, sorter) { return [...rows].sort(sorter)[0]; }
 function topPlayers(rows, sorter, filter = () => true) {
   return rows.filter(filter).sort(sorter).slice(0, 5);
 }
+function awardBallsEligible(row, mode = "any") {
+  if (mode === "batting") return Number(row.balls || 0) >= 15;
+  if (mode === "bowling") return Number(row.bowlBalls || 0) >= 15;
+  return Number(row.balls || 0) >= 15 || Number(row.bowlBalls || 0) >= 15;
+}
 function awardKey(title) {
   return {
     "Orange Cap": "orange",
@@ -1273,11 +1278,11 @@ function statsView() {
     if (!searchText) return true;
     return row.player.name.toLowerCase().includes(searchText) || teamName(row.player.teamId).toLowerCase().includes(searchText);
   });
-  const orangeRows = topPlayers(rows, (a, b) => b.runs - a.runs || b.strikeRate - a.strikeRate, (row) => row.runs > 0);
-  const purpleRows = topPlayers(rows, (a, b) => b.wickets - a.wickets || b.runs - a.runs, (row) => row.wickets > 0);
-  const strikeRows = topPlayers(rows, (a, b) => b.strikeRate - a.strikeRate || b.runs - a.runs, (row) => row.balls > 0);
-  const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0);
-  const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => row.runs || row.wickets || row.bowlBalls || row.motm);
+  const orangeRows = topPlayers(rows, (a, b) => b.runs - a.runs || b.strikeRate - a.strikeRate, (row) => row.runs > 0 && awardBallsEligible(row, "batting"));
+  const purpleRows = topPlayers(rows, (a, b) => b.wickets - a.wickets || b.runs - a.runs, (row) => row.wickets > 0 && awardBallsEligible(row, "bowling"));
+  const strikeRows = topPlayers(rows, (a, b) => b.strikeRate - a.strikeRate || b.runs - a.runs, (row) => row.balls > 0 && awardBallsEligible(row, "batting"));
+  const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0 && awardBallsEligible(row, "bowling"));
+  const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => (row.runs || row.wickets || row.bowlBalls || row.motm) && awardBallsEligible(row));
   renderShell(`
     <div class="section-head"><div><span class="eyebrow">Overall Awards</span><h1 class="page-title">League Leaders</h1><p class="lead">Top 5 players for every overall award across the whole Diorite Premier League. Player of the Match stays match-specific and is shown only in match results.</p></div></div>
     <div class="grid two">
@@ -1525,11 +1530,11 @@ function matchesAdmin() {
 }
 function awardsAdmin() {
   const rows = playerAggregates();
-  const orangeRows = topPlayers(rows, (a, b) => b.runs - a.runs || b.strikeRate - a.strikeRate, (row) => row.runs > 0);
-  const purpleRows = topPlayers(rows, (a, b) => b.wickets - a.wickets || b.runs - a.runs, (row) => row.wickets > 0);
-  const strikeRows = topPlayers(rows, (a, b) => b.strikeRate - a.strikeRate || b.runs - a.runs, (row) => row.balls > 0);
-  const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0);
-  const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => row.runs || row.wickets || row.bowlBalls || row.motm);
+  const orangeRows = topPlayers(rows, (a, b) => b.runs - a.runs || b.strikeRate - a.strikeRate, (row) => row.runs > 0 && awardBallsEligible(row, "batting"));
+  const purpleRows = topPlayers(rows, (a, b) => b.wickets - a.wickets || b.runs - a.runs, (row) => row.wickets > 0 && awardBallsEligible(row, "bowling"));
+  const strikeRows = topPlayers(rows, (a, b) => b.strikeRate - a.strikeRate || b.runs - a.runs, (row) => row.balls > 0 && awardBallsEligible(row, "batting"));
+  const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0 && awardBallsEligible(row, "bowling"));
+  const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => (row.runs || row.wickets || row.bowlBalls || row.motm) && awardBallsEligible(row));
   return `<div class="card">
     <span class="eyebrow">Overall Awards</span>
     <h2>League Award Leaderboards</h2>
