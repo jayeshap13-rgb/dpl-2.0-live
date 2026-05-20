@@ -549,6 +549,39 @@ a { color: inherit; text-decoration: none; }
 .sponsor-tile strong {
   font-size: 1.05rem;
 }
+@media (min-width: 961px) {
+  .home-sponsor-showcase .featured-sponsor,
+  .home-sponsor-showcase .sponsor-tile {
+    gap: 0;
+  }
+  .home-sponsor-showcase .sponsor-tile {
+    padding-bottom: 0.28rem;
+    padding-top: 0.28rem;
+  }
+  .home-sponsor-showcase .featured-sponsor strong,
+  .home-sponsor-showcase .sponsor-tile strong {
+    margin-top: -0.35rem;
+  }
+  .home-sponsor-showcase .sponsor-tile img,
+  .home-sponsor-showcase .sponsor-tile > span {
+    margin-bottom: -0.85rem;
+    margin-top: -0.35rem;
+  }
+  .home-sponsor-showcase .featured-sponsor img,
+  .home-sponsor-showcase .featured-sponsor > span {
+    margin-bottom: -1rem;
+  }
+  .home-sponsor-showcase .major-sponsor-wall .sponsor-tile img,
+  .home-sponsor-showcase .major-sponsor-wall .sponsor-tile > span {
+    margin-bottom: -1.05rem;
+    margin-top: -0.55rem;
+  }
+  .home-sponsor-showcase .team-sponsor-wall .sponsor-tile img,
+  .home-sponsor-showcase .team-sponsor-wall .sponsor-tile > span {
+    margin-bottom: -0.9rem;
+    margin-top: -0.42rem;
+  }
+}
 .card {
   border: 1px solid rgba(0, 217, 255, 0.2);
   border-radius: 8px;
