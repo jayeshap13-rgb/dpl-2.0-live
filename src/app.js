@@ -646,6 +646,23 @@ function playerOptions(selected = "", teamId = "") {
   const players = teamId ? teamPlayers(teamId) : data.players;
   return `<option value="">Select player</option>${players.map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(displayPlayerName(p))} - ${esc(teamName(p.teamId))}</option>`).join("")}`;
 }
+function battingEventCounts(match, playerId) {
+  const counts = {};
+  const events = match?.batting?.[playerId]?.events || [];
+  events.forEach((event) => {
+    if (event.type !== "batting" || !event.key) return;
+    counts[event.key] = Number(counts[event.key] || 0) + Number(event.qty || 1);
+  });
+  return counts;
+}
+function battingEventOptions(match, playerId = "", selected = "") {
+  const counts = playerId ? battingEventCounts(match, playerId) : {};
+  return rules().batting.map(([key, label, runs, balls]) => {
+    const count = Number(counts[key] || 0);
+    const countText = count ? ` - ${count}` : "";
+    return `<option value="${key}" ${key === selected ? "selected" : ""}>${esc(label)} (${runs}/${balls})${countText}</option>`;
+  }).join("");
+}
 function teamOptions(selected = "") {
   return `<option value="">Select team</option>${data.teams.map((t) => `<option value="${t.id}" ${t.id === selected ? "selected" : ""}>${esc(t.name)}</option>`).join("")}`;
 }
@@ -1284,7 +1301,7 @@ function statsView() {
   const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0 && awardBallsEligible(row, "bowling"));
   const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => (row.runs || row.wickets || row.bowlBalls || row.motm) && awardBallsEligible(row));
   renderShell(`
-    <div class="section-head"><div><span class="eyebrow">Overall Awards</span><h1 class="page-title">League Leaders</h1><p class="lead">Top 5 players for every overall award across the whole Diorite Premier League. Player of the Match stays match-specific and is shown only in match results.</p></div></div>
+    <div class="section-head"><div><span class="eyebrow">Overall Awards</span><h1 class="page-title">League Leaders</h1><p class="lead">Top 5 players for every overall award across the whole Diorite Premier League. Player of the Match stays match-specific and is shown only in match results.</p><p class="muted"><small>Award eligibility: batting awards need at least 15 balls faced, bowling awards need at least 15 balls bowled, and MVP needs either 15 balls faced or 15 balls bowled overall.</small></p></div></div>
     <div class="grid two">
       ${leaderboardCard("Orange Cap", orangeRows, "Runs", (row) => row.runs, battingAwardMeta)}
       ${leaderboardCard("Purple Cap", purpleRows, "Wkts", (row) => row.wickets, (row) => `${bowlingAwardMeta(row)} / Wickets ${row.wickets}`)}
@@ -1471,7 +1488,7 @@ function liveAdmin() {
       <button class="button primary full">Save Match State</button>
     </form></div>
     <div class="grid two">
-      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${playerOptions(battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${rules().batting.map(([key,label,r,b]) => `<option value="${key}" ${key === battingMemory.event ? "selected" : ""}>${label} (${r}/${b})</option>`).join("")}</select></label><label>Quantity<input type="number" name="qty" min="1" value="1"></label><button class="button primary">Add Runs</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double only on ${esc(battingPowerplayDay)} while powerplay is on.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div></div>
+      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${playerOptions(battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${battingEventOptions(match, battingMemory.playerId || "", battingMemory.event)}</select></label><label>Quantity<input type="number" name="qty" min="1" value="1"></label><button class="button primary">Add Runs</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double only on ${esc(battingPowerplayDay)} while powerplay is on. Event dropdown counts show only the selected player's entries in this match.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div></div>
       <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${playerOptions(bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">Apply Bowling Impact</button></form></div>
     </div>
     <div class="grid two" id="admin-bonuses">
@@ -2355,6 +2372,18 @@ function upsertCriteria(fd) {
 }
 
 function handleChange(event) {
+  const battingScoreForm = event.target.closest('form[data-form="batting-score"]');
+  if (battingScoreForm && ["playerId", "activityDay", "event"].includes(event.target.name)) {
+    if (!requireAdmin()) return;
+    const matchId = battingScoreForm.matchId?.value || activeAdminMatch()?.id;
+    rememberLiveForm(matchId, "batting", {
+      activityDay: battingScoreForm.activityDay?.value || "",
+      playerId: battingScoreForm.playerId?.value || "",
+      event: battingScoreForm.event?.value || "",
+    });
+    if (event.target.name === "playerId") render();
+    return;
+  }
   const playerTeamSelect = event.target.closest('[data-action="select-admin-player-team"]');
   if (playerTeamSelect) {
     if (!requireAdmin()) return;
