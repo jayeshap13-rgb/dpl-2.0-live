@@ -261,6 +261,7 @@ function normalizeData(saved) {
     [match.teamAId, match.teamBId].filter(Boolean).forEach((teamId) => {
       if (match.teamSetups?.[teamId]?.secretImposterId) match.secretImpostersByTeam[teamId] = match.teamSetups[teamId].secretImposterId;
     });
+    migratePowerplayBalls(match);
   });
   if (!normalized.meta?.supportsTwoLiveWeek) {
     const hasCompleted = normalized.matches.some((match) => match.status === "completed");
@@ -274,6 +275,24 @@ function normalizeData(saved) {
     localStorage.setItem(STORE_KEY, JSON.stringify(normalized));
   }
   return normalized;
+}
+function migratePowerplayBalls(match) {
+  if (match.meta?.powerplayBallsDoubled) return;
+  Object.values(match.batting || {}).forEach((row) => {
+    row.events ||= [];
+    row.events.forEach((event) => {
+      if (event.type !== "batting" || !String(event.detail || "").includes("opener batting powerplay double")) return;
+      const expectedBalls = Number(event.baseBalls || 0) * Number(event.qty || 1) * 2;
+      const currentBalls = Number(event.balls || 0);
+      if (expectedBalls > currentBalls) {
+        const delta = expectedBalls - currentBalls;
+        event.balls = expectedBalls;
+        event.summary = `+${event.runs || 0} R / ${event.balls} B`;
+        row.balls = Number(row.balls || 0) + delta;
+      }
+    });
+  });
+  match.meta = { ...(match.meta || {}), powerplayBallsDoubled: true };
 }
 function saveData() {
   try {
@@ -663,6 +682,20 @@ function battingEventOptions(match, playerId = "", selected = "") {
     return `<option value="${key}" ${key === selected ? "selected" : ""}>${esc(label)} (${runs}/${balls})${countText}</option>`;
   }).join("");
 }
+function battingAdminEventList(match) {
+  const events = battingAdminEvents(match).slice(0, 16);
+  return events.length ? `<div class="admin-event-list">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
+    <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / Qty ${esc(event.qty || 1)} / ${esc(event.activityDay || "-")} / ${esc(event.summary || "")}</small></span>
+    <span class="row-actions"><button class="button small" data-action="edit-batting-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-batting-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
+  </div>`).join("")}</div>` : `<p class="muted">No batting scoring entries yet.</p>`;
+}
+function bowlingAdminEventList(match) {
+  const events = bowlingAdminEvents(match).slice(0, 16);
+  return events.length ? `<div class="admin-event-list">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
+    <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / ${esc(event.bowlingDay || "-")} / ${esc(event.wickets || 0)} W / ${esc(event.runs || 0)} R${event.targetId ? ` / Target ${esc(playerName(event.targetId))}` : ""}</small></span>
+    <span class="row-actions"><button class="button small" data-action="edit-bowling-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-bowling-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
+  </div>`).join("")}</div>` : `<p class="muted">No bowling impact entries yet.</p>`;
+}
 function teamOptions(selected = "") {
   return `<option value="">Select team</option>${data.teams.map((t) => `<option value="${t.id}" ${t.id === selected ? "selected" : ""}>${esc(t.name)}</option>`).join("")}`;
 }
@@ -841,6 +874,63 @@ function ensureBowlingRow(match, playerId) {
   match.bowling[playerId] ||= { wickets: 0, runs: 0, balls: 0, events: [] };
   match.bowling[playerId].events ||= [];
   return match.bowling[playerId];
+}
+function findBattingAdminEvent(match, eventId) {
+  for (const [playerId, row] of Object.entries(match.batting || {})) {
+    const event = (row.events || []).find((item) => item.id === eventId && item.type === "batting");
+    if (event) return { playerId, row, event };
+  }
+  return null;
+}
+function findBowlingAdminEvent(match, eventId) {
+  for (const [playerId, row] of Object.entries(match.bowling || {})) {
+    const event = (row.events || []).find((item) => item.id === eventId && item.type === "bowling");
+    if (event) return { playerId, row, event };
+  }
+  return null;
+}
+function removeBattingAdminEvent(match, eventId) {
+  const found = findBattingAdminEvent(match, eventId);
+  if (!found) return false;
+  found.row.runs = Math.round((Number(found.row.runs || 0) - Number(found.event.runs || 0)) * 10) / 10;
+  found.row.balls = Math.max(0, Number(found.row.balls || 0) - Number(found.event.balls || 0));
+  found.row.events = (found.row.events || []).filter((event) => event.id !== eventId);
+  return found;
+}
+function removeBowlingAdminEvent(match, eventId) {
+  const found = findBowlingAdminEvent(match, eventId);
+  if (!found) return false;
+  found.row.wickets = Math.max(0, Number(found.row.wickets || 0) - Number(found.event.wickets || 0));
+  found.row.runs = Math.round((Number(found.row.runs || 0) - Number(found.event.runs || 0)) * 10) / 10;
+  found.row.balls = Math.max(0, Number(found.row.balls || 0) - Number(found.event.balls || 0));
+  found.row.events = (found.row.events || []).filter((event) => event.id !== eventId);
+  const targetId = found.event.targetId;
+  if (targetId && match.batting?.[targetId]) {
+    const targetRow = match.batting[targetId];
+    (targetRow.events || []).filter((event) => event.sourceEventId === eventId && event.type === "batting").forEach((event) => {
+      targetRow.runs = Math.round((Number(targetRow.runs || 0) - Number(event.runs || 0)) * 10) / 10;
+      targetRow.balls = Math.max(0, Number(targetRow.balls || 0) - Number(event.balls || 0));
+    });
+    targetRow.events = (targetRow.events || []).filter((event) => event.sourceEventId !== eventId);
+    const wicketEvents = (targetRow.events || []).filter((event) => event.type === "wicket");
+    if (!wicketEvents.length || targetRow.wicketBy === found.playerId) {
+      targetRow.out = Boolean(wicketEvents.length);
+      targetRow.wicketBy = wicketEvents.length ? targetRow.wicketBy : "";
+    }
+  }
+  return found;
+}
+function battingAdminEvents(match) {
+  return Object.entries(match.batting || {}).flatMap(([playerId, row]) => (row.events || [])
+    .filter((event) => event.type === "batting")
+    .map((event) => ({ playerId, event })))
+    .sort((a, b) => String(b.event.at || "").localeCompare(String(a.event.at || "")));
+}
+function bowlingAdminEvents(match) {
+  return Object.entries(match.bowling || {}).flatMap(([playerId, row]) => (row.events || [])
+    .filter((event) => event.type === "bowling")
+    .map((event) => ({ playerId, event })))
+    .sort((a, b) => String(b.event.at || "").localeCompare(String(a.event.at || "")));
 }
 function scoringBreakdown(title, events, fallbackText) {
   return `<div class="card" style="margin-top:1rem">
@@ -1488,8 +1578,8 @@ function liveAdmin() {
       <button class="button primary full">Save Match State</button>
     </form></div>
     <div class="grid two">
-      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${playerOptions(battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${battingEventOptions(match, battingMemory.playerId || "", battingMemory.event)}</select></label><label>Quantity<input type="number" name="qty" min="1" value="1"></label><button class="button primary">Add Runs</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double only on ${esc(battingPowerplayDay)} while powerplay is on. Event dropdown counts show only the selected player's entries in this match.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div></div>
-      <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${playerOptions(bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">Apply Bowling Impact</button></form></div>
+      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(battingMemory.editEventId || "")}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${playerOptions(battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${battingEventOptions(match, battingMemory.playerId || "", battingMemory.event)}</select></label><label>Quantity<input type="number" name="qty" min="1" value="${esc(battingMemory.qty || 1)}"></label><button class="button primary">${battingMemory.editEventId ? "Update Runs" : "Add Runs"}</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double runs and double balls only on ${esc(battingPowerplayDay)} while powerplay is on. Those doubled runs and balls also count in that day's bowler figures. Event dropdown counts show only the selected player's entries in this match.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Batting Entries</h4>${battingAdminEventList(match)}</div>
+      <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(bowlingMemory.editEventId || "")}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${playerOptions(bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">${bowlingMemory.editEventId ? "Update Bowling Impact" : "Apply Bowling Impact"}</button></form><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Bowling Entries</h4>${bowlingAdminEventList(match)}</div>
     </div>
     <div class="grid two" id="admin-bonuses">
       <div class="card"><h3>Manual Batting Bonus</h3><form class="grid" data-form="batting-bonus"><input type="hidden" name="matchId" value="${match.id}"><label>Activity day<select name="activityDay">${dayOptions(battingBonusMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Batter<select name="playerId">${playerOptions(battingBonusMemory.playerId || "", match.battingTeamId)}</select></label><label>Bonus runs<input name="runs" type="number" step="0.1" value="0"></label><label>Bonus balls<input name="balls" type="number" step="1" min="0" value="0"></label><label>Reason<input name="reason" placeholder="Bonus reason"></label><button class="button primary">Add Batting Bonus</button></form></div>
@@ -2116,17 +2206,20 @@ async function handleForm(event) {
     const rule = rules().batting.find((r) => r[0] === fd.get("event"));
     const qty = Number(fd.get("qty") || 1);
     const activityDay = fd.get("activityDay") || setupForTeam(match, match.battingTeamId).battingPowerplayDay || "Wednesday";
-    rememberLiveForm(match.id, "batting", { activityDay, playerId, event: fd.get("event") });
+    const editEventId = fd.get("editEventId");
+    if (editEventId) removeBattingAdminEvent(match, editEventId);
+    rememberLiveForm(match.id, "batting", { activityDay, playerId, event: fd.get("event"), qty, editEventId: "" });
     const row = ensureBattingRow(match, playerId);
     const battingSetup = setupForTeam(match, match.battingTeamId);
     const powerplayMultiplier = match.powerplay && activityDay === (battingSetup.battingPowerplayDay || match.battingPowerplayDay || "Wednesday") && openersFor(match, match.battingTeamId).includes(playerId) ? 2 : 1;
     const multiplier = (row.out ? 0.5 : 1) * powerplayMultiplier;
     const addedRuns = Math.round(rule[2] * qty * multiplier * 10) / 10;
-    const addedBalls = rule[3] * qty;
+    const addedBalls = rule[3] * qty * powerplayMultiplier;
+    const eventId = editEventId || id("bat");
     row.runs += addedRuns;
     row.balls += addedBalls;
     row.events.unshift({
-      id: id("bat"),
+      id: eventId,
       type: "batting",
       key: rule[0],
       label: rule[1],
@@ -2138,10 +2231,10 @@ async function handleForm(event) {
       runs: addedRuns,
       balls: addedBalls,
       summary: `+${addedRuns} R / ${addedBalls} B`,
-      detail: `${activityDay} / ${qty} x ${rule[2]} run, ${rule[3]} ball rule${row.out ? " / half score after wicket" : ""}${powerplayMultiplier === 2 ? " / opener batting powerplay double" : ""}`,
+      detail: `${activityDay} / ${qty} x ${rule[2]} run, ${rule[3]} ball rule${row.out ? " / half score after wicket" : ""}${powerplayMultiplier === 2 ? " / opener batting powerplay double runs and balls" : ""}`,
       at: new Date().toISOString(),
     });
-    addAutoCommentary(match, `${playerName(playerId)} adds ${addedRuns} runs from ${rule[1]} on ${activityDay}${powerplayMultiplier === 2 ? " with opener batting powerplay double" : ""}${row.out ? " after wicket, so half-score applies" : ""}.`);
+    addAutoCommentary(match, `${playerName(playerId)} ${editEventId ? "updates" : "adds"} ${addedRuns} runs from ${addedBalls} balls through ${rule[1]} on ${activityDay}${powerplayMultiplier === 2 ? " with opener batting powerplay double runs and balls" : ""}${row.out ? " after wicket, so half-score applies" : ""}.`);
     saveData(); render();
   }
   if (type === "batting-bonus") {
@@ -2190,14 +2283,17 @@ async function handleForm(event) {
     const validBowler = teamPlayers(match.bowlingTeamId).some((player) => player.id === bowlerId) && (!selectedBowlerIds.size || selectedBowlerIds.has(bowlerId));
     if (!validBowler) return toast("Select a bowler from the bowling team");
     if (targetId && !teamPlayers(match.battingTeamId).some((player) => player.id === targetId)) return toast("Target batter must be from batting team");
-    rememberLiveForm(match.id, "bowling", { bowlingDay, playerId: bowlerId, targetId, event: fd.get("event") });
+    const editEventId = fd.get("editEventId");
+    if (editEventId) removeBowlingAdminEvent(match, editEventId);
+    rememberLiveForm(match.id, "bowling", { bowlingDay, playerId: bowlerId, targetId, event: fd.get("event"), editEventId: "" });
     const batterPenalty = battingPenaltyForBowlingRule(rule[0], rule[3]);
     if (batterPenalty && !targetId) return toast("Select target batter for Absent/Late penalty");
     const row = ensureBowlingRow(match, bowlerId);
+    const eventId = editEventId || id("bowl");
     row.wickets += rule[2];
     row.runs += rule[3];
     row.events.unshift({
-      id: id("bowl"),
+      id: eventId,
       type: "bowling",
       key: rule[0],
       label: rule[1],
@@ -2223,6 +2319,7 @@ async function handleForm(event) {
       }
       targetRow.events.unshift({
         id: id("wicket"),
+        sourceEventId: eventId,
         type: "wicket",
         label: "Wicket lost",
         summary: `Out by ${playerName(bowlerId)}`,
@@ -2232,6 +2329,7 @@ async function handleForm(event) {
       if (batterPenalty) {
         targetRow.events.unshift({
           id: id("batpenalty"),
+          sourceEventId: eventId,
           type: "batting",
           key: rule[0],
           label: `${rule[1]} penalty`,
@@ -2248,7 +2346,7 @@ async function handleForm(event) {
         });
       }
     }
-    addAutoCommentary(match, `${playerName(bowlerId)} applies ${rule[1]}${bowlingDay ? ` on ${bowlingDay}` : ""}${targetId ? ` and targets ${playerName(targetId)}` : ""}: ${rule[2]} wicket impact, ${rule[3]} run impact.`);
+    addAutoCommentary(match, `${playerName(bowlerId)} ${editEventId ? "updates" : "applies"} ${rule[1]}${bowlingDay ? ` on ${bowlingDay}` : ""}${targetId ? ` and targets ${playerName(targetId)}` : ""}: ${rule[2]} wicket impact, ${rule[3]} run impact.`);
     saveData(); render();
   }
   if (type === "bowling-bonus") {
@@ -2384,6 +2482,19 @@ function handleChange(event) {
     if (event.target.name === "playerId") render();
     return;
   }
+  const bowlingScoreForm = event.target.closest('form[data-form="bowling-score"]');
+  if (bowlingScoreForm && ["playerId", "bowlingDay", "event", "targetId"].includes(event.target.name)) {
+    if (!requireAdmin()) return;
+    const matchId = bowlingScoreForm.matchId?.value || activeAdminMatch()?.id;
+    rememberLiveForm(matchId, "bowling", {
+      bowlingDay: bowlingScoreForm.bowlingDay?.value || "",
+      playerId: bowlingScoreForm.playerId?.value || "",
+      targetId: bowlingScoreForm.targetId?.value || "",
+      event: bowlingScoreForm.event?.value || "",
+      editEventId: bowlingScoreForm.editEventId?.value || "",
+    });
+    return;
+  }
   const playerTeamSelect = event.target.closest('[data-action="select-admin-player-team"]');
   if (playerTeamSelect) {
     if (!requireAdmin()) return;
@@ -2481,6 +2592,7 @@ function handleClick(event) {
   const adminActions = new Set([
     "admin-tab", "add-extra", "toggle-out", "all-out",
     "scroll-admin-section",
+    "edit-batting-event", "delete-batting-event", "edit-bowling-event", "delete-bowling-event",
     "edit-team", "edit-player", "edit-match", "edit-criteria", "edit-sponsor",
     "delete-team", "delete-player", "delete-match", "delete-criteria", "delete-sponsor",
     "reset-data", "export-json", "publish-online", "test-firebase",
@@ -2507,6 +2619,48 @@ function handleClick(event) {
     match.extras = Number(match.extras || 0) + rule[2];
     addAutoCommentary(match, `${teamName(match.battingTeamId)} collect ${rule[2]} extra runs through ${rule[1]}.`);
     saveData(); render();
+  }
+  if (action === "edit-batting-event") {
+    const match = byId(data.matches, el.dataset.match);
+    const found = findBattingAdminEvent(match, el.dataset.event);
+    if (!found) return toast("Batting entry not found");
+    rememberLiveForm(match.id, "batting", {
+      activityDay: found.event.activityDay || match.currentDay || "Wednesday",
+      playerId: found.playerId,
+      event: found.event.key || "",
+      qty: found.event.qty || 1,
+      editEventId: found.event.id,
+    });
+    toast("Batting entry loaded for editing");
+    render();
+  }
+  if (action === "delete-batting-event") {
+    const match = byId(data.matches, el.dataset.match);
+    const found = removeBattingAdminEvent(match, el.dataset.event);
+    if (!found) return toast("Batting entry not found");
+    addAutoCommentary(match, `${playerName(found.playerId)} batting entry removed: ${found.event.label || found.event.key}.`);
+    saveData(); toast("Batting entry removed"); render();
+  }
+  if (action === "edit-bowling-event") {
+    const match = byId(data.matches, el.dataset.match);
+    const found = findBowlingAdminEvent(match, el.dataset.event);
+    if (!found) return toast("Bowling entry not found");
+    rememberLiveForm(match.id, "bowling", {
+      bowlingDay: found.event.bowlingDay || match.currentDay || "Wednesday",
+      playerId: found.playerId,
+      targetId: found.event.targetId || "",
+      event: found.event.key || "",
+      editEventId: found.event.id,
+    });
+    toast("Bowling entry loaded for editing");
+    render();
+  }
+  if (action === "delete-bowling-event") {
+    const match = byId(data.matches, el.dataset.match);
+    const found = removeBowlingAdminEvent(match, el.dataset.event);
+    if (!found) return toast("Bowling entry not found");
+    addAutoCommentary(match, `${playerName(found.playerId)} bowling entry removed: ${found.event.label || found.event.key}.`);
+    saveData(); toast("Bowling entry removed"); render();
   }
   if (action === "toggle-out") {
     const match = byId(data.matches, el.dataset.match);
