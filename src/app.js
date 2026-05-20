@@ -112,6 +112,7 @@ let statsSearch = sessionStorage.getItem("dpl2-stats-search") || "";
 let homeCommentaryPopShown = false;
 let liveFormMemory = JSON.parse(sessionStorage.getItem("dpl2-live-form-memory") || "{}");
 let adminCollapsed = JSON.parse(sessionStorage.getItem("dpl2-admin-collapsed") || "{}");
+let adminLiveExpanded = JSON.parse(sessionStorage.getItem("dpl2-admin-live-expanded") || "{}");
 let firebaseDoc = null;
 let firebaseSaveTimer = null;
 let applyingFirebaseData = false;
@@ -403,6 +404,17 @@ function rememberLiveForm(matchId, formName, values) {
   liveFormMemory[matchId] ||= {};
   liveFormMemory[matchId][formName] = { ...(liveFormMemory[matchId][formName] || {}), ...values };
   sessionStorage.setItem("dpl2-live-form-memory", JSON.stringify(liveFormMemory));
+}
+function rememberAdminLiveExpanded(cardId, expanded = true) {
+  if (!cardId) return;
+  adminLiveExpanded[cardId] = expanded;
+  sessionStorage.setItem("dpl2-admin-live-expanded", JSON.stringify(adminLiveExpanded));
+}
+function restoreAdminLiveExpanded() {
+  Object.entries(adminLiveExpanded).forEach(([cardId, expanded]) => {
+    const card = document.getElementById(cardId);
+    if (card) card.classList.toggle("admin-live-expanded", Boolean(expanded));
+  });
 }
 function liveMemory(match, formName) {
   return liveFormMemory[match.id]?.[formName] || {};
@@ -2200,6 +2212,7 @@ async function handleForm(event) {
     return;
   }
   if (!requireAdmin()) return;
+  rememberAdminLiveExpanded(form.closest(".card")?.id);
   if (type === "match-state") {
     const match = byId(data.matches, fd.get("matchId"));
     const previous = {
@@ -2676,6 +2689,7 @@ function handleClick(event) {
     const card = adminLiveHeading.closest(".card");
     if (card) {
       card.classList.toggle("admin-live-expanded");
+      rememberAdminLiveExpanded(card.id, card.classList.contains("admin-live-expanded"));
       return;
     }
   }
@@ -2708,6 +2722,7 @@ function handleClick(event) {
   if (action === "scroll-admin-section") {
     const target = document.getElementById(el.dataset.target);
     target?.classList.add("admin-live-expanded");
+    rememberAdminLiveExpanded(target?.id, true);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (action === "toggle-admin-collapse") {
@@ -2974,6 +2989,7 @@ function showHomeCommentaryPop() {
 function render() {
   const views = { home: homeView, dashboard: dashboardView, results: resultsView, stats: statsView, points: pointsView, admin: adminView };
   (views[route] || homeView)();
+  if (route === "admin") restoreAdminLiveExpanded();
   if (route === "home") setTimeout(showHomeCommentaryPop, 450);
 }
 
