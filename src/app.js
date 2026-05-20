@@ -39,7 +39,8 @@ const scoringRules = {
     ["absent", "Absent", 1, -10],
     ["late", "Late", 1, -6],
     ["noActivity", "No Activity In A Day", 1, 0],
-    ["referralClaim", "6/9 Members Doing 2 Referrals Or 2 1-2-1s", 1, 0],
+    ["oneToOneClaim", "6/9 Members Doing 2 1-2-1s", 1, 0],
+    ["referralClaim", "6/9 Members Passing 2 Referrals", 1, 0],
     ["visitorClaim", "6/9 Members Registering 1 Paid Visitor", 3, 0],
     ["allCriteria", "Bowler Completing All Criteria On Bowling Day", 2, 0],
   ],
@@ -236,6 +237,16 @@ function normalizeData(saved) {
   if (teamMeetupRule) teamMeetupRule[1] = "5/9 Team Members Meet Up";
   scoringRules.batting.forEach((rule) => {
     if (!normalized.criteria.batting.some((item) => item[0] === rule[0])) normalized.criteria.batting.push(clone(rule));
+  });
+  scoringRules.bowling.forEach((rule) => {
+    const existing = normalized.criteria.bowling.find((item) => item[0] === rule[0]);
+    if (existing) {
+      existing[1] = rule[1];
+      existing[2] = rule[2];
+      existing[3] = rule[3];
+    } else {
+      normalized.criteria.bowling.push(clone(rule));
+    }
   });
   const lateRule = normalized.criteria.bowling.find((rule) => rule[0] === "late");
   if (lateRule) lateRule[3] = -6;
@@ -736,12 +747,15 @@ function bowlingClaimSummary(match, teamId) {
     totalsByPlayer[playerId].tyfcbLakhs += Number(row.tyfcbLakhs || 0);
   });
   const totals = Object.values(totalsByPlayer);
-  const referralOr121Members = totals.filter((row) => row.referrals >= 2 || row.oneToOnes >= 2).length;
+  const oneToOneMembers = totals.filter((row) => row.oneToOnes >= 2).length;
+  const referralMembers = totals.filter((row) => row.referrals >= 2).length;
   const paidVisitorMembers = totals.filter((row) => row.paidVisitors >= 1).length;
   const allCriteriaPlayers = Object.entries(totalsByPlayer).filter(([, row]) => row.oneToOnes > 0 && row.referrals > 0 && row.paidVisitors > 0 && row.tyfcbLakhs > 0).map(([playerId]) => playerId);
   const messages = [];
-  if (referralOr121Members >= 6) messages.push({ wickets: 1, text: `${referralOr121Members}/9 members completed 2 referrals or 2 1-2-1s. Team can claim 1 specific wicket.` });
-  else messages.push({ wickets: 0, text: `${referralOr121Members}/9 members have 2 referrals or 2 1-2-1s. Need ${Math.max(0, 6 - referralOr121Members)} more for 1 wicket claim.` });
+  if (oneToOneMembers >= 6) messages.push({ wickets: 1, text: `${oneToOneMembers}/9 members completed 2 1-2-1s. Team can claim 1 specific wicket.` });
+  else messages.push({ wickets: 0, text: `${oneToOneMembers}/9 members completed 2 1-2-1s. Need ${Math.max(0, 6 - oneToOneMembers)} more for 1 wicket claim.` });
+  if (referralMembers >= 6) messages.push({ wickets: 1, text: `${referralMembers}/9 members passed 2 referrals. Team can claim 1 specific wicket.` });
+  else messages.push({ wickets: 0, text: `${referralMembers}/9 members passed 2 referrals. Need ${Math.max(0, 6 - referralMembers)} more for 1 wicket claim.` });
   if (paidVisitorMembers >= 6) messages.push({ wickets: 3, text: `${paidVisitorMembers}/9 members registered a paid visitor. Team can claim 3 specific wickets.` });
   else messages.push({ wickets: 0, text: `${paidVisitorMembers}/9 members registered a paid visitor. Need ${Math.max(0, 6 - paidVisitorMembers)} more for 3 wicket claim.` });
   if (allCriteriaPlayers.length) {
@@ -749,7 +763,7 @@ function bowlingClaimSummary(match, teamId) {
   } else {
     messages.push({ wickets: 0, text: "No bowler has completed all tracked criteria yet for the 2-wicket claim." });
   }
-  return { referralOr121Members, paidVisitorMembers, allCriteriaPlayers, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
+  return { oneToOneMembers, referralMembers, paidVisitorMembers, allCriteriaPlayers, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
 }
 function bowlingTrackerPanel(match) {
   const memory = liveMemory(match, "bowlingTracker");
@@ -2378,20 +2392,22 @@ async function handleForm(event) {
     if (batterPenalty && !targetId) return toast("Select target batter for Absent/Late penalty");
     const row = ensureBowlingRow(match, bowlerId);
     const eventId = editEventId || id("bowl");
-    row.wickets += rule[2];
+    const appliedWickets = Number(rule[2] || 0) > 0 ? 1 : 0;
+    row.wickets += appliedWickets;
     row.runs += rule[3];
     row.events.unshift({
       id: eventId,
       type: "bowling",
       key: rule[0],
       label: rule[1],
-      wickets: rule[2],
+      wickets: appliedWickets,
+      claimWickets: rule[2],
       runs: rule[3],
       balls: 0,
       targetId,
       bowlingDay,
-      summary: `+${rule[2]} W / ${rule[3]} R impact`,
-      detail: `${bowlingDay ? `${bowlingDay} / ` : ""}${targetId ? `Target batter: ${playerName(targetId)}` : "No specific target batter selected"}`,
+      summary: `+${appliedWickets} W / ${rule[3]} R impact`,
+      detail: `${bowlingDay ? `${bowlingDay} / ` : ""}${targetId ? `Target batter: ${playerName(targetId)}` : "No specific target batter selected"} / criteria allows ${rule[2]} total claim${Number(rule[2]) === 1 ? "" : "s"}, applied 1 wicket this time`,
       at: new Date().toISOString(),
     });
     if (rule[0] === "absent" && bowlingDay === "Tuesday" && owner?.id === bowlerId) {
@@ -2434,7 +2450,7 @@ async function handleForm(event) {
         });
       }
     }
-    addAutoCommentary(match, `${playerName(bowlerId)} ${editEventId ? "updates" : "applies"} ${rule[1]}${bowlingDay ? ` on ${bowlingDay}` : ""}${targetId ? ` and targets ${playerName(targetId)}` : ""}: ${rule[2]} wicket impact, ${rule[3]} run impact.`);
+    addAutoCommentary(match, `${playerName(bowlerId)} ${editEventId ? "updates" : "applies"} ${rule[1]}${bowlingDay ? ` on ${bowlingDay}` : ""}${targetId ? ` and targets ${playerName(targetId)}` : ""}: ${appliedWickets} wicket applied, ${rule[3]} run impact.`);
     saveData(); render();
   }
   if (type === "bowling-tracker") {
