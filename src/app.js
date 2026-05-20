@@ -773,7 +773,7 @@ function bowlingTrackerPanel(match) {
   const claim = bowlingClaimSummary(match, match.bowlingTeamId);
   const rows = bowlingTrackingRows(match, match.bowlingTeamId, day);
   return `<div class="card" id="admin-bowling-tracker">
-    <h3>Bowling Claim Tracker</h3>
+    <h3>Wicket Claim Tracker</h3>
     <div class="claim-box">
       <strong>${esc(teamName(match.bowlingTeamId))} claim status</strong>
       ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
@@ -790,6 +790,21 @@ function bowlingTrackerPanel(match) {
     </form>
     <div class="mini-list" style="margin-top:.85rem">
       ${rows.length ? rows.map(({ playerId: rowPlayerId, row }) => `<div class="list-item"><span><strong>${esc(playerName(rowPlayerId))}</strong><small class="muted"> 1-2-1: ${esc(row.oneToOnes || 0)} / Ref: ${esc(row.referrals || 0)} / Paid: ${esc(row.paidVisitors || 0)} / TYFCB: ${esc(row.tyfcbLakhs || 0)}</small></span></div>`).join("") : `<div class="empty">No tracking added for ${esc(shortDay(day))} yet.</div>`}
+    </div>
+  </div>`;
+}
+function bowlingClaimScorecardPanel(match, teamId) {
+  const claim = bowlingClaimSummary(match, teamId);
+  const rows = bowlingTrackingRows(match, teamId);
+  return `<div class="scorecard-claim-tracker">
+    <h4>Wicket Claim Tracker</h4>
+    <div class="claim-box scorecard-claim-box">
+      ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
+    </div>
+    <div class="mini-list scorecard-tracker-list">
+      ${rows.length ? rows.map(({ day, playerId, row }) => `<div class="list-item tracker-score-row">
+        <span><strong>${esc(playerName(playerId))}</strong><small class="muted"> ${esc(shortDay(day))} / 1-2-1: ${esc(row.oneToOnes || 0)} / Ref: ${esc(row.referrals || 0)} / Paid: ${esc(row.paidVisitors || 0)} / TYFCB: ${esc(row.tyfcbLakhs || 0)}</small></span>
+      </div>`).join("") : `<p class="muted">No wicket claim tracking added yet.</p>`}
     </div>
   </div>`;
 }
@@ -1360,9 +1375,9 @@ function topPlayers(rows, sorter, filter = () => true) {
   return rows.filter(filter).sort(sorter).slice(0, 5);
 }
 function awardBallsEligible(row, mode = "any") {
-  if (mode === "batting") return Number(row.balls || 0) >= 15;
-  if (mode === "bowling") return Number(row.bowlBalls || 0) >= 15;
-  return Number(row.balls || 0) >= 15 || Number(row.bowlBalls || 0) >= 15;
+  if (mode === "batting") return Number(row.balls || 0) >= 11;
+  if (mode === "bowling") return Number(row.bowlBalls || 0) >= 11;
+  return Number(row.balls || 0) >= 11 || Number(row.bowlBalls || 0) >= 11;
 }
 function awardKey(title) {
   return {
@@ -1488,7 +1503,7 @@ function statsView() {
   const economyRows = topPlayers(rows, (a, b) => a.economy - b.economy || b.wickets - a.wickets, (row) => row.bowlBalls > 0 && awardBallsEligible(row, "bowling"));
   const mvpRows = topPlayers(rows, (a, b) => b.mvp - a.mvp || b.runs - a.runs || b.wickets - a.wickets, (row) => (row.runs || row.wickets || row.bowlBalls || row.motm) && awardBallsEligible(row));
   renderShell(`
-    <div class="section-head"><div><span class="eyebrow">Overall Awards</span><h1 class="page-title">League Leaders</h1><p class="lead">Top 5 players for every overall award across the whole Diorite Premier League. Player of the Match stays match-specific and is shown only in match results.</p><p class="muted"><small>Award eligibility: batting awards need at least 15 balls faced, bowling awards need at least 15 balls bowled, and MVP needs either 15 balls faced or 15 balls bowled overall.</small></p></div></div>
+    <div class="section-head"><div><span class="eyebrow">Overall Awards</span><h1 class="page-title">League Leaders</h1><p class="lead">Top 5 players for every overall award across the whole Diorite Premier League. Player of the Match stays match-specific and is shown only in match results.</p><p class="muted"><small>Award eligibility: batting awards need at least 11 balls faced, bowling awards need at least 11 balls bowled/conceded, and MVP needs either 11 balls faced or 11 balls bowled/conceded overall.</small></p></div></div>
     <div class="grid two">
       ${leaderboardCard("Orange Cap", orangeRows, "Runs", (row) => row.runs, battingAwardMeta)}
       ${leaderboardCard("Purple Cap", purpleRows, "Wkts", (row) => row.wickets, (row) => `${bowlingAwardMeta(row)} / Wickets ${row.wickets}`)}
@@ -1882,6 +1897,7 @@ function scorecardDetailView(match, activeView) {
             <span class="pill">${esc(teamName(previousBowlingTeamId))}</span>
           </div>
           <div class="player-summary-list">${bowlersSummaryForTeam(match, previousBowlingTeamId) || `<p class="muted">No bowling details recorded for the previous innings yet.</p>`}</div>
+          ${bowlingClaimScorecardPanel(match, previousBowlingTeamId)}
         </div>
       </div>
       <div class="card" style="margin-top:1rem">
@@ -1894,7 +1910,7 @@ function scorecardDetailView(match, activeView) {
   const bowlingTitle = match.status === "completed" ? "2nd Innings Bowling" : "Bowlers";
   return `<div class="grid two player-detail-grid" style="margin-top:1rem">
       <div class="card"><h3 class="panel-title">${battingTitle}</h3><div class="player-summary-list">${batsmenSummary(match)}</div></div>
-      <div class="card"><h3 class="panel-title">${bowlingTitle}</h3><div class="player-summary-list">${bowlersSummary(match)}</div></div>
+      <div class="card"><h3 class="panel-title">${bowlingTitle}</h3><div class="player-summary-list">${bowlersSummary(match)}</div>${bowlingClaimScorecardPanel(match, match.bowlingTeamId)}</div>
     </div>
     <div class="card" style="margin-top:1rem"><h3 class="panel-title">Extras</h3><div class="player-detail-line"><span>${esc(teamName(match.battingTeamId))}</span><strong class="orange">${extrasTotalForTeam(match, match.battingTeamId)} runs</strong></div></div>`;
 }

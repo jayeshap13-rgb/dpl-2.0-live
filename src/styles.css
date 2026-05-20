@@ -669,6 +669,32 @@ a { color: inherit; text-decoration: none; }
 .claim-box p {
   margin: 0.28rem 0 0;
 }
+.scorecard-claim-tracker {
+  border-top: 1px solid rgba(0,217,255,0.16);
+  margin-top: 0.8rem;
+  padding-top: 0.75rem;
+}
+.scorecard-claim-tracker h4 {
+  color: #fff7cf;
+  font-family: var(--sport-display);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.5rem;
+}
+.scorecard-claim-box {
+  margin-bottom: 0.55rem;
+  padding: 0.55rem;
+}
+.scorecard-tracker-list {
+  gap: 0.3rem;
+}
+.tracker-score-row {
+  padding: 0.42rem 0.5rem;
+}
+.tracker-score-row small {
+  font-size: 0.74rem;
+}
 .match-card::before {
   content: "";
   position: absolute;
