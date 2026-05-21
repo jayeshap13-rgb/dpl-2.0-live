@@ -736,8 +736,15 @@ function bowlingTrackingRows(match, teamId, day = "") {
     return Object.entries(players || {}).map(([playerId, row]) => ({ day: trackedDay, playerId, row }));
   }).filter(({ row }) => Number(row.oneToOnes || 0) || Number(row.referrals || 0) || Number(row.paidVisitors || 0) || Number(row.tyfcbLakhs || 0));
 }
+function bowlingClaimWindowDays(match, teamId) {
+  const assignedDays = bowlersFor(match, teamId).filter((bowler) => bowler.playerId && bowler.day).slice(0, 3).map((bowler) => bowler.day);
+  if (assignedDays.length) return Array.from(new Set(assignedDays));
+  return Array.from(new Set(bowlingTrackingRows(match, teamId).map((row) => row.day))).slice(0, 3);
+}
 function bowlingClaimSummary(match, teamId) {
-  const rows = bowlingTrackingRows(match, teamId);
+  const windowDays = bowlingClaimWindowDays(match, teamId);
+  const daySet = new Set(windowDays);
+  const rows = bowlingTrackingRows(match, teamId).filter((row) => !daySet.size || daySet.has(row.day));
   const totalsByPlayer = {};
   rows.forEach(({ playerId, row }) => {
     totalsByPlayer[playerId] ||= { oneToOnes: 0, referrals: 0, paidVisitors: 0, tyfcbLakhs: 0 };
@@ -750,20 +757,26 @@ function bowlingClaimSummary(match, teamId) {
   const oneToOneMembers = totals.filter((row) => row.oneToOnes >= 2).length;
   const referralMembers = totals.filter((row) => row.referrals >= 2).length;
   const paidVisitorMembers = totals.filter((row) => row.paidVisitors >= 1).length;
-  const allCriteriaPlayers = Object.entries(totalsByPlayer).filter(([, row]) => row.oneToOnes > 0 && row.referrals > 0 && row.paidVisitors > 0 && row.tyfcbLakhs > 0).map(([playerId]) => playerId);
+  const allCriteriaPlayers = rows
+    .filter(({ day, playerId, row }) => {
+      const assignedBowler = bowlersFor(match, teamId).find((bowler) => bowler.day === day && bowler.playerId === playerId);
+      return assignedBowler && row.oneToOnes > 0 && row.referrals > 0 && row.paidVisitors > 0 && row.tyfcbLakhs > 0;
+    })
+    .map(({ day, playerId }) => ({ day, playerId }));
+  const dayText = windowDays.length ? `across ${windowDays.map(shortDay).join(", ")}` : "across the 3 bowling days";
   const messages = [];
-  if (oneToOneMembers >= 6) messages.push({ wickets: 1, text: `${oneToOneMembers}/9 members completed 2 1-2-1s. Team can claim 1 specific wicket.` });
-  else messages.push({ wickets: 0, text: `${oneToOneMembers}/9 members completed 2 1-2-1s. Need ${Math.max(0, 6 - oneToOneMembers)} more for 1 wicket claim.` });
-  if (referralMembers >= 6) messages.push({ wickets: 1, text: `${referralMembers}/9 members passed 2 referrals. Team can claim 1 specific wicket.` });
-  else messages.push({ wickets: 0, text: `${referralMembers}/9 members passed 2 referrals. Need ${Math.max(0, 6 - referralMembers)} more for 1 wicket claim.` });
-  if (paidVisitorMembers >= 6) messages.push({ wickets: 3, text: `${paidVisitorMembers}/9 members registered a paid visitor. Team can claim 3 specific wickets.` });
-  else messages.push({ wickets: 0, text: `${paidVisitorMembers}/9 members registered a paid visitor. Need ${Math.max(0, 6 - paidVisitorMembers)} more for 3 wicket claim.` });
+  if (oneToOneMembers >= 6) messages.push({ wickets: 1, text: `${oneToOneMembers}/9 members completed 2 1-2-1s ${dayText}. Team can claim 1 specific wicket.` });
+  else messages.push({ wickets: 0, text: `${oneToOneMembers}/9 members completed 2 1-2-1s ${dayText}. Need ${Math.max(0, 6 - oneToOneMembers)} more for 1 wicket claim.` });
+  if (referralMembers >= 6) messages.push({ wickets: 1, text: `${referralMembers}/9 members passed 2 referrals ${dayText}. Team can claim 1 specific wicket.` });
+  else messages.push({ wickets: 0, text: `${referralMembers}/9 members passed 2 referrals ${dayText}. Need ${Math.max(0, 6 - referralMembers)} more for 1 wicket claim.` });
+  if (paidVisitorMembers >= 6) messages.push({ wickets: 3, text: `${paidVisitorMembers}/9 members registered a paid visitor ${dayText}. Team can claim 3 specific wickets.` });
+  else messages.push({ wickets: 0, text: `${paidVisitorMembers}/9 members registered a paid visitor ${dayText}. Need ${Math.max(0, 6 - paidVisitorMembers)} more for 3 wicket claim.` });
   if (allCriteriaPlayers.length) {
-    messages.push({ wickets: allCriteriaPlayers.length * 2, text: `${allCriteriaPlayers.map(playerName).join(", ")} completed all tracked bowling-day criteria. Claim 2 specific wickets per qualifying bowler.` });
+    messages.push({ wickets: allCriteriaPlayers.length * 2, text: `${allCriteriaPlayers.map((item) => `${playerName(item.playerId)} (${shortDay(item.day)})`).join(", ")} completed all tracked criteria on their own bowling day. Claim 2 specific wickets per qualifying bowler-day.` });
   } else {
-    messages.push({ wickets: 0, text: "No bowler has completed all tracked criteria yet for the 2-wicket claim." });
+    messages.push({ wickets: 0, text: "No assigned bowler has completed all tracked criteria on their own bowling day yet for the 2-wicket claim." });
   }
-  return { oneToOneMembers, referralMembers, paidVisitorMembers, allCriteriaPlayers, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
+  return { oneToOneMembers, referralMembers, paidVisitorMembers, allCriteriaPlayers, windowDays, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
 }
 function bowlingTrackerPanel(match) {
   const memory = liveMemory(match, "bowlingTracker");
