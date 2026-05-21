@@ -741,6 +741,32 @@ function bowlingClaimWindowDays(match, teamId) {
   if (assignedDays.length) return Array.from(new Set(assignedDays));
   return Array.from(new Set(bowlingTrackingRows(match, teamId).map((row) => row.day))).slice(0, 3);
 }
+function bowlingTrackingWindowTotals(match, teamId) {
+  const windowDays = bowlingClaimWindowDays(match, teamId);
+  const daySet = new Set(windowDays);
+  return teamPlayers(teamId).map((player) => {
+    const totals = { oneToOnes: 0, referrals: 0, paidVisitors: 0, tyfcbLakhs: 0 };
+    const days = {};
+    (daySet.size ? windowDays : ["Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Monday"]).forEach((day) => {
+      const row = match.bowlingTracker?.[teamId]?.[day]?.[player.id] || {};
+      const dayTotals = {
+        oneToOnes: Number(row.oneToOnes || 0),
+        referrals: Number(row.referrals || 0),
+        paidVisitors: Number(row.paidVisitors || 0),
+        tyfcbLakhs: Number(row.tyfcbLakhs || 0),
+      };
+      days[day] = dayTotals;
+      totals.oneToOnes += dayTotals.oneToOnes;
+      totals.referrals += dayTotals.referrals;
+      totals.paidVisitors += dayTotals.paidVisitors;
+      totals.tyfcbLakhs += dayTotals.tyfcbLakhs;
+    });
+    return { player, totals, days };
+  });
+}
+function trackingSummaryText(row) {
+  return `1-2-1: ${row.oneToOnes || 0} / Ref: ${row.referrals || 0} / Paid: ${row.paidVisitors || 0} / TYFCB: ${row.tyfcbLakhs || 0}`;
+}
 function bowlingClaimSummary(match, teamId) {
   const windowDays = bowlingClaimWindowDays(match, teamId);
   const daySet = new Set(windowDays);
@@ -784,7 +810,8 @@ function bowlingTrackerPanel(match) {
   const playerId = memory.playerId || "";
   const current = playerId ? bowlingTrackingRecord(match, match.bowlingTeamId, day, playerId) : {};
   const claim = bowlingClaimSummary(match, match.bowlingTeamId);
-  const rows = bowlingTrackingRows(match, match.bowlingTeamId, day);
+  const totals = bowlingTrackingWindowTotals(match, match.bowlingTeamId);
+  const windowLabel = claim.windowDays?.length ? claim.windowDays.map(shortDay).join(", ") : "3 bowling days";
   return `<div class="card" id="admin-bowling-tracker">
     <h3>Wicket Claim Tracker</h3>
     <div class="claim-box">
@@ -802,22 +829,25 @@ function bowlingTrackerPanel(match) {
       <button class="button purple">Save Tracking</button>
     </form>
     <div class="mini-list" style="margin-top:.85rem">
-      ${rows.length ? rows.map(({ playerId: rowPlayerId, row }) => `<div class="list-item"><span><strong>${esc(playerName(rowPlayerId))}</strong><small class="muted"> 1-2-1: ${esc(row.oneToOnes || 0)} / Ref: ${esc(row.referrals || 0)} / Paid: ${esc(row.paidVisitors || 0)} / TYFCB: ${esc(row.tyfcbLakhs || 0)}</small></span></div>`).join("") : `<div class="empty">No tracking added for ${esc(shortDay(day))} yet.</div>`}
+      <div class="muted"><small>Showing all bowling team members across ${esc(windowLabel)}.</small></div>
+      ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row"><span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span></div>`).join("")}
     </div>
   </div>`;
 }
 function bowlingClaimScorecardPanel(match, teamId) {
   const claim = bowlingClaimSummary(match, teamId);
-  const rows = bowlingTrackingRows(match, teamId);
+  const totals = bowlingTrackingWindowTotals(match, teamId);
+  const windowLabel = claim.windowDays?.length ? claim.windowDays.map(shortDay).join(", ") : "3 bowling days";
   return `<div class="scorecard-claim-tracker">
     <h4>Wicket Claim Tracker</h4>
     <div class="claim-box scorecard-claim-box">
       ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
     </div>
     <div class="mini-list scorecard-tracker-list">
-      ${rows.length ? rows.map(({ day, playerId, row }) => `<div class="list-item tracker-score-row">
-        <span><strong>${esc(playerName(playerId))}</strong><small class="muted"> ${esc(shortDay(day))} / 1-2-1: ${esc(row.oneToOnes || 0)} / Ref: ${esc(row.referrals || 0)} / Paid: ${esc(row.paidVisitors || 0)} / TYFCB: ${esc(row.tyfcbLakhs || 0)}</small></span>
-      </div>`).join("") : `<p class="muted">No wicket claim tracking added yet.</p>`}
+      <div class="muted"><small>All bowling members across ${esc(windowLabel)}.</small></div>
+      ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row">
+        <span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span>
+      </div>`).join("")}
     </div>
   </div>`;
 }
