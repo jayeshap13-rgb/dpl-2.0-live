@@ -804,6 +804,33 @@ function bowlingClaimSummary(match, teamId) {
   }
   return { oneToOneMembers, referralMembers, paidVisitorMembers, allCriteriaPlayers, windowDays, messages, totalClaimWickets: messages.reduce((sum, item) => sum + item.wickets, 0) };
 }
+function wicketClaimDayBowler(match, teamId, day = "") {
+  const activeDay = day || match.currentDay || todayLeagueDay();
+  const assignment = bowlingAssignmentsForTeam(match, teamId).find((bowler) => bowler.day === activeDay);
+  return { day: activeDay, playerId: assignment?.playerId || "" };
+}
+function wicketClaimDayStatus(match, teamId, day = "") {
+  const active = wicketClaimDayBowler(match, teamId, day);
+  const row = active.playerId ? (match.bowlingTracker?.[teamId]?.[active.day]?.[active.playerId] || {}) : {};
+  const checks = [
+    { key: "oneToOnes", label: "1-2-1", value: Number(row.oneToOnes || 0), required: 1 },
+    { key: "referrals", label: "Referral", value: Number(row.referrals || 0), required: 1 },
+    { key: "paidVisitors", label: "Paid visitor", value: Number(row.paidVisitors || 0), required: 1 },
+    { key: "tyfcbLakhs", label: "TYFCB Rs 1 lakh", value: Number(row.tyfcbLakhs || 0), required: 1 },
+  ];
+  const pending = checks.filter((item) => item.value < item.required);
+  const complete = Boolean(active.playerId && !pending.length);
+  return { ...active, row, checks, pending, complete };
+}
+function wicketClaimDayStatusHtml(dayStatus) {
+  const bowler = dayStatus.playerId ? playerName(dayStatus.playerId) : "Not selected";
+  return `<div class="day-claim-status">
+    <p class="${dayStatus.complete ? "green" : "muted"}"><strong>${esc(shortDay(dayStatus.day))} bowler:</strong> ${esc(bowler)} / ${dayStatus.complete ? "all criteria complete, claim 2 wickets" : "all-criteria claim pending for this day"}</p>
+    <div class="claim-check-grid">
+      ${dayStatus.checks.map((item) => `<span class="${item.value >= item.required ? "done" : "pending"}">${item.value >= item.required ? "Done" : "Pending"}: ${esc(item.label)} (${esc(item.value)}/${esc(item.required)})</span>`).join("")}
+    </div>
+  </div>`;
+}
 function bowlingTrackerPanel(match) {
   const memory = liveMemory(match, "bowlingTracker");
   const day = memory.day || match.currentDay || "Wednesday";
@@ -811,11 +838,12 @@ function bowlingTrackerPanel(match) {
   const current = playerId ? bowlingTrackingRecord(match, match.bowlingTeamId, day, playerId) : {};
   const claim = bowlingClaimSummary(match, match.bowlingTeamId);
   const totals = bowlingTrackingWindowTotals(match, match.bowlingTeamId);
-  const windowLabel = claim.windowDays?.length ? claim.windowDays.map(shortDay).join(", ") : "3 bowling days";
+  const dayStatus = wicketClaimDayStatus(match, match.bowlingTeamId, day);
   return `<div class="card" id="admin-bowling-tracker">
     <h3>Wicket Claim Tracker</h3>
     <div class="claim-box">
       <strong>${esc(teamName(match.bowlingTeamId))} claim status</strong>
+      ${wicketClaimDayStatusHtml(dayStatus)}
       ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
     </div>
     <form class="grid" data-form="bowling-tracker">
@@ -829,7 +857,7 @@ function bowlingTrackerPanel(match) {
       <button class="button purple">Save Tracking</button>
     </form>
     <div class="mini-list" style="margin-top:.85rem">
-      <div class="muted"><small>Showing all bowling team members across ${esc(windowLabel)}.</small></div>
+      <div class="muted"><small>Overall tracking for all bowling team members.</small></div>
       ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row"><span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span></div>`).join("")}
     </div>
   </div>`;
@@ -837,14 +865,15 @@ function bowlingTrackerPanel(match) {
 function bowlingClaimScorecardPanel(match, teamId) {
   const claim = bowlingClaimSummary(match, teamId);
   const totals = bowlingTrackingWindowTotals(match, teamId);
-  const windowLabel = claim.windowDays?.length ? claim.windowDays.map(shortDay).join(", ") : "3 bowling days";
+  const dayStatus = wicketClaimDayStatus(match, teamId, scoreboardDay(match));
   return `<div class="scorecard-claim-tracker">
     <h4>Wicket Claim Tracker</h4>
     <div class="claim-box scorecard-claim-box">
+      ${wicketClaimDayStatusHtml(dayStatus)}
       ${claim.messages.map((item) => `<p class="${item.wickets ? "green" : "muted"}">${esc(item.text)}</p>`).join("")}
     </div>
     <div class="mini-list scorecard-tracker-list">
-      <div class="muted"><small>All bowling members across ${esc(windowLabel)}.</small></div>
+      <div class="muted"><small>Overall tracking for all bowling team members.</small></div>
       ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row">
         <span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span>
       </div>`).join("")}
