@@ -889,6 +889,43 @@ function matchTeamOptions(match, selected = "") {
 function matchPlayerOptions(match, selected = "") {
   return `<option value="">Select player</option>${[match.teamAId, match.teamBId].flatMap((teamId) => teamPlayers(teamId)).map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(displayPlayerName(p))} - ${esc(teamName(p.teamId))}</option>`).join("")}`;
 }
+function potmContenderScore(row, context = {}) {
+  const battingImpact = Number(row.runs || 0) * 1.25;
+  const wicketImpact = Number(row.wickets || 0) * 35;
+  const topBattingBonus = row.runs && row.runs === context.topRuns ? 18 : 0;
+  const topBowlingBonus = row.wickets && row.wickets === context.topWickets ? 18 : 0;
+  const strikeImpact = row.balls >= 6 ? Math.min(12, Math.max(0, row.strikeRate - 120) / 8) : 0;
+  const wicketEconomyImpact = row.wickets && row.bowlBalls >= 6 ? Math.max(0, 10 - row.economy) * 2 : 0;
+  return Math.round((battingImpact + wicketImpact + topBattingBonus + topBowlingBonus + strikeImpact + wicketEconomyImpact) * 10) / 10;
+}
+function matchAwardContenders(match, awardType = "mvp") {
+  const matchPlayerIds = new Set([match.teamAId, match.teamBId].flatMap((teamId) => teamPlayers(teamId).map((p) => p.id)));
+  const matchRows = playerAggregatesForMatches([match]).filter((row) => matchPlayerIds.has(row.player.id));
+  const potmContext = {
+    topRuns: Math.max(0, ...matchRows.map((row) => Number(row.runs || 0))),
+    topWickets: Math.max(0, ...matchRows.map((row) => Number(row.wickets || 0))),
+  };
+  const rows = matchRows
+    .map((row) => {
+      const score = awardType === "potm" ? potmContenderScore(row, potmContext) : Number(row.mvp || 0);
+      return { ...row, contenderScore: Math.max(0, score) };
+    })
+    .sort((a, b) => b.contenderScore - a.contenderScore || b.runs - a.runs || b.wickets - a.wickets || displayPlayerName(a.player).localeCompare(displayPlayerName(b.player)));
+  const maxScore = Math.max(0, ...rows.map((row) => row.contenderScore));
+  return rows.map((row) => ({
+    ...row,
+    deservingPercent: maxScore ? Math.round((row.contenderScore / maxScore) * 100) : 0,
+  }));
+}
+function matchAwardOptionLabel(row, awardType = "mvp") {
+  const figures = `${row.runs} R, ${row.wickets} W, ${row.bowlRuns} RC`;
+  const scoreText = awardType === "potm" ? "POTM" : "MVP";
+  return `${displayPlayerName(row.player)} - ${teamName(row.player.teamId)} - ${row.deservingPercent}% ${scoreText} contender (${figures})`;
+}
+function matchAwardOptions(match, selected = "", awardType = "mvp") {
+  const contenders = matchAwardContenders(match, awardType);
+  return `<option value="">Select player</option>${contenders.map((row) => `<option value="${row.player.id}" ${row.player.id === selected ? "selected" : ""}>${esc(matchAwardOptionLabel(row, awardType))}</option>`).join("")}`;
+}
 function selectedBowlerOptions(match, selected = "") {
   const bowlingSetup = bowlersFor(match, match.bowlingTeamId);
   const selectedIds = new Set((bowlingSetup || []).map((bowler) => bowler.playerId).filter(Boolean));
@@ -1782,7 +1819,7 @@ function liveAdmin() {
       ${bowlingTrackerPanel(match)}
     </div>
     <div class="grid two">
-      <div class="card" id="admin-complete"><h3>Complete Match</h3><form class="grid" data-form="complete-match"><input type="hidden" name="matchId" value="${match.id}"><label>Winner<select name="winnerId">${matchTeamOptions(match, match.winnerId)}</select></label><label>Match MVP<select name="matchMvpId">${matchPlayerOptions(match, match.matchMvpId)}</select></label><label>Player of the Match<select name="playerOfMatchId">${matchPlayerOptions(match, match.playerOfMatchId)}</select></label><label>Match start date and time<input name="startAt" type="datetime-local" value="${esc(dateTimeInputValue(match.startAt))}"></label><label>Match end date and time<input name="completedAt" type="datetime-local" value="${esc(dateTimeInputValue(match.completedAt))}"></label><button class="button green">Complete and Move to Results</button></form><button class="button small" data-action="open-scorecard" data-id="${match.id}" style="margin-top:.75rem">Preview Scorecard</button></div>
+      <div class="card" id="admin-complete"><h3>Complete Match</h3><form class="grid" data-form="complete-match"><input type="hidden" name="matchId" value="${match.id}"><label>Winner<select name="winnerId">${matchTeamOptions(match, match.winnerId)}</select></label><label>Match MVP<select name="matchMvpId">${matchAwardOptions(match, match.matchMvpId, "mvp")}</select></label><label>Player of the Match<select name="playerOfMatchId">${matchAwardOptions(match, match.playerOfMatchId, "potm")}</select></label><label>Match start date and time<input name="startAt" type="datetime-local" value="${esc(dateTimeInputValue(match.startAt))}"></label><label>Match end date and time<input name="completedAt" type="datetime-local" value="${esc(dateTimeInputValue(match.completedAt))}"></label><button class="button green">Complete and Move to Results</button></form><p class="muted" style="margin:.75rem 0 0">MVP is ranked by all-round value: runs, strike rate, wickets, bowling volume, and economy. POTM is ranked separately by standout match impact: top batting or bowling performance, runs, wickets, and decisive efficiency. Both lists use only this selected match's two teams and can still be changed manually.</p><button class="button small" data-action="open-scorecard" data-id="${match.id}" style="margin-top:.75rem">Preview Scorecard</button></div>
       <div class="card" id="admin-commentary"><h3>Edit Commentary</h3><form class="grid" data-form="commentary"><input type="hidden" name="matchId" value="${match.id}"><label>Ball / Time<input name="time" placeholder="12.4"></label><label>Commentary<textarea name="text" placeholder="Add match event"></textarea></label><button class="button primary">Add Commentary</button></form><div class="commentary" style="margin-top:1rem">${commentaryHtml(match)}</div></div>
     </div>
   </div>`;
