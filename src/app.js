@@ -716,11 +716,12 @@ function battingAdminEventList(match) {
   </div>`).join("")}</div>` : `<p class="muted">No batting scoring entries yet.</p>`}`;
 }
 function bowlingAdminEventList(match) {
+  const collapsed = adminCollapsed[`${match.id}:bowlingEntries`] !== false;
   const events = bowlingAdminEvents(match).slice(0, 16);
-  return events.length ? `<div class="admin-event-list">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
+  return `<div class="collapsible-head"><button class="button small" type="button" data-action="toggle-admin-collapse" data-key="${match.id}:bowlingEntries">${collapsed ? "Show" : "Hide"} Bowling Entries (${events.length})</button></div>${events.length ? `<div class="admin-event-list ${collapsed ? "collapsed" : ""}">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
     <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / ${esc(event.bowlingDay || "-")} / ${esc(event.wickets || 0)} W / ${esc(event.runs || 0)} R${event.targetId ? ` / Target ${esc(playerName(event.targetId))}` : ""}</small></span>
     <span class="row-actions"><button class="button small" data-action="edit-bowling-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-bowling-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
-  </div>`).join("")}</div>` : `<p class="muted">No bowling impact entries yet.</p>`;
+  </div>`).join("")}</div>` : `<p class="muted">No bowling impact entries yet.</p>`}`;
 }
 function bowlingTrackingRecord(match, teamId, day, playerId) {
   match.bowlingTracker ||= {};
@@ -1292,7 +1293,7 @@ function homeView() {
     </div>
     <div class="grid three" style="margin-top:1rem">
       <article class="card"><h3>League Format</h3><p class="muted">4 teams split into 2 groups, playing 10 matches across 5 weeks. Each live week can run 2 matches side by side, with Week 5 closing placement matches.</p></article>
-      <article class="card"><h3>Rules Summary</h3><p class="muted">Batting actions score runs and balls. Bowling actions claim wickets or penalties. After a wicket, that player's future batting scoring is halved. A full team all out stops remaining scoring.</p></article>
+      <article class="card"><h3>Rules Summary</h3><p class="muted">Batting actions score runs and balls. Bowling actions claim wickets or penalties. After a wicket, that player's future regular batting scoring is halved. A full team all out stops regular scoring, while admin manual bonuses can still be added.</p></article>
       <article class="card"><h3>Awards Summary</h3><p class="muted">Orange Cap, Purple Cap, Best Strike Rate, Best Economy, MVP, and Match awards update from scorecards and can be edited from admin.</p></article>
     </div>
     <div class="card fixtures-card" style="margin-top:1rem">
@@ -1659,10 +1660,10 @@ function pointsRows() {
   }).sort((a,b) => b.points - a.points || Number(b.nrr) - Number(a.nrr));
 }
 function scoringCriteriaSection() {
-  const batting = rules().batting.map(([, label, runs, balls]) => `
+  const batting = scoringRules.batting.map(([, label, runs, balls]) => `
     <div class="rule-chip"><span>${esc(label)}</span><strong>${runs} R</strong><small>${balls} B</small></div>
   `).join("");
-  const extras = rules().extras.map(([, label, runs]) => `
+  const extras = scoringRules.extras.map(([, label, runs]) => `
     <div class="rule-chip"><span>${esc(label)}</span><strong>${runs} R</strong><small>Team</small></div>
   `).join("");
   const specialRules = `
@@ -1675,7 +1676,7 @@ function scoringCriteriaSection() {
       <small>The imposter's own batting score stays fully credited, and 50% of that batting score is also added to the opponent team's total.</small>
     </div>
   `;
-  const bowling = rules().bowling.map(([, label, wickets, runs]) => `
+  const bowling = scoringRules.bowling.map(([, label, wickets, runs]) => `
     <div class="rule-chip"><span>${esc(label)}</span><strong>${wickets} W</strong><small>${runs ? `${runs} R` : "Claim"}</small></div>
   `).join("");
   return `
@@ -1689,7 +1690,7 @@ function scoringCriteriaSection() {
         <div class="criteria-column">
           <article class="criteria-panel extras"><h3>Extras</h3><div class="rule-grid compact">${extras}</div></article>
           <article class="criteria-panel special-rules"><h3>Special Match Rules</h3><div class="rule-grid compact">${specialRules}</div></article>
-          <article class="criteria-panel wickets"><h3>Wicket Rule</h3><div class="rule-grid compact"><div class="rule-chip"><span>Player Loses Wicket</span><strong>50%</strong><small>Future Scoring</small></div><div class="rule-chip"><span>Full Team All Out</span><strong>Stop</strong><small>Innings Scoring</small></div></div></article>
+          <article class="criteria-panel wickets"><h3>Wicket Rule</h3><div class="rule-grid compact"><div class="rule-chip"><span>Player Loses Wicket</span><strong>50%</strong><small>Future Regular Scoring</small></div><div class="rule-chip"><span>Full Team All Out</span><strong>Stop</strong><small>Regular Scoring Only</small></div><div class="rule-chip"><span>Manual Batting Bonus</span><strong>Full</strong><small>No 50% Or All-Out Block</small></div></div></article>
         </div>
       </div>
     </div>
@@ -1804,8 +1805,8 @@ function liveAdmin() {
       <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(bowlingMemory.editEventId || "")}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${playerOptions(bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">${bowlingMemory.editEventId ? "Update Bowling Impact" : "Apply Bowling Impact"}</button></form><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Bowling Entries</h4>${bowlingAdminEventList(match)}</div>
     </div>
     <div class="grid two" id="admin-bonuses">
-      <div class="card"><h3>Manual Batting Bonus</h3><form class="grid" data-form="batting-bonus"><input type="hidden" name="matchId" value="${match.id}"><label>Activity day<select name="activityDay">${dayOptions(battingBonusMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Batter<select name="playerId">${playerOptions(battingBonusMemory.playerId || "", match.battingTeamId)}</select></label><label>Bonus runs<input name="runs" type="number" step="0.1" value="0"></label><label>Bonus balls<input name="balls" type="number" step="1" min="0" value="0"></label><label>Reason<input name="reason" placeholder="Bonus reason"></label><button class="button primary">Add Batting Bonus</button></form></div>
-      <div class="card"><h3>Manual Bowling Bonus</h3><form class="grid" data-form="bowling-bonus"><input type="hidden" name="matchId" value="${match.id}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingBonusMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingBonusMemory.playerId || "")}</select></label><label>Bonus wickets<input name="wickets" type="number" step="0.1" value="0"></label><label>Run impact<input name="runs" type="number" step="0.1" value="0"></label><label>Reason<input name="reason" placeholder="Bonus or penalty reason"></label><button class="button purple">Add Bowling Bonus</button></form></div>
+      <div class="card"><h3>Manual Batting Bonus</h3><form class="grid" data-form="batting-bonus"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(battingBonusMemory.editEventId || "")}"><label>Activity day<select name="activityDay">${dayOptions(battingBonusMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${matchPlayerOptions(match, battingBonusMemory.playerId || "")}</select></label><label>Bonus runs<input name="runs" type="number" step="0.1" value="${esc(battingBonusMemory.runs ?? 0)}"></label><label>Bonus balls<input name="balls" type="number" step="1" min="0" value="${esc(battingBonusMemory.balls ?? 0)}"></label><label>Reason<input name="reason" placeholder="Bonus reason" value="${esc(battingBonusMemory.reason || "")}"></label><button class="button primary">${battingBonusMemory.editEventId ? "Update Batting Bonus" : "Add Batting Bonus"}</button></form><p class="muted" style="margin:.6rem 0 0">Manual bonus can be added to either team at any time. It ignores all-out and half-score after wicket, but still counts for secret imposter transfer.</p></div>
+      <div class="card"><h3>Manual Bowling Bonus</h3><form class="grid" data-form="bowling-bonus"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(bowlingBonusMemory.editEventId || "")}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingBonusMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Player<select name="playerId">${matchPlayerOptions(match, bowlingBonusMemory.playerId || "")}</select></label><label>Bonus wickets<input name="wickets" type="number" step="0.1" value="${esc(bowlingBonusMemory.wickets ?? 0)}"></label><label>Run impact<input name="runs" type="number" step="0.1" value="${esc(bowlingBonusMemory.runs ?? 0)}"></label><label>Reason<input name="reason" placeholder="Bonus or penalty reason" value="${esc(bowlingBonusMemory.reason || "")}"></label><button class="button purple">${bowlingBonusMemory.editEventId ? "Update Bowling Bonus" : "Add Bowling Bonus"}</button></form><p class="muted" style="margin:.6rem 0 0">Manual bonus wickets can be added to any player from either match team on any day.</p></div>
     </div>
     <div class="grid two">
       <div class="card" id="admin-wickets"><h3>Player Wickets</h3><div class="mini-list">${teamPlayers(match.battingTeamId).map((p) => {
@@ -2137,8 +2138,8 @@ function openStatsPlayerDetail(playerId) {
   if (!player) return;
   const matches = scopedStatsMatches();
   const aggregate = playerAggregatesForMatches(matches).find((row) => row.player.id === playerId);
-  const battingCounts = Object.fromEntries(rules().batting.map(([key, label]) => [key, { label, qty: 0, runs: 0, balls: 0 }]));
-  const bowlingCounts = Object.fromEntries(rules().bowling.map(([key, label]) => [key, { label, count: 0, wickets: 0, runs: 0 }]));
+  const battingCounts = Object.fromEntries(scoringRules.batting.map(([key, label]) => [key, { label, qty: 0, runs: 0, balls: 0 }]));
+  const bowlingCounts = Object.fromEntries(scoringRules.bowling.map(([key, label]) => [key, { label, count: 0, wickets: 0, runs: 0 }]));
   const matchLines = [];
   const inningsBreakdown = playerInningsBreakdown(playerId, matches);
 
@@ -2430,7 +2431,7 @@ async function handleForm(event) {
     const playerId = fd.get("playerId");
     if (!playerId) return toast("Select a batter");
     if (!teamPlayers(match.battingTeamId).some((player) => player.id === playerId)) return toast("Select a player from the batting team");
-    const rule = rules().batting.find((r) => r[0] === fd.get("event"));
+    const rule = scoringRules.batting.find((r) => r[0] === fd.get("event"));
     const qty = Number(fd.get("qty") || 1);
     const activityDay = fd.get("activityDay") || setupForTeam(match, match.battingTeamId).battingPowerplayDay || "Wednesday";
     const editEventId = fd.get("editEventId");
@@ -2466,19 +2467,23 @@ async function handleForm(event) {
   }
   if (type === "batting-bonus") {
     const match = byId(data.matches, fd.get("matchId"));
-    if (isCurrentTeamAllOut(match)) return toast("Team is all out. No more scoring allowed.");
+    const matchTeams = [match.teamAId, match.teamBId].filter(Boolean);
+    const matchPlayerIds = new Set(matchTeams.flatMap((teamId) => teamPlayers(teamId).map((player) => player.id)));
     const playerId = fd.get("playerId");
-    if (!playerId || !teamPlayers(match.battingTeamId).some((player) => player.id === playerId)) return toast("Select a batter from the batting team");
+    if (!playerId || !matchPlayerIds.has(playerId)) return toast("Select a player from this match");
     const runs = Number(fd.get("runs") || 0);
     const balls = Number(fd.get("balls") || 0);
-    const activityDay = fd.get("activityDay") || setupForTeam(match, match.battingTeamId).battingPowerplayDay || "Wednesday";
-    rememberLiveForm(match.id, "battingBonus", { activityDay, playerId });
+    const activityDay = fd.get("activityDay") || match.currentDay || "Wednesday";
+    const editEventId = fd.get("editEventId");
+    if (editEventId) removeBattingAdminEvent(match, editEventId);
+    rememberLiveForm(match.id, "battingBonus", { activityDay, playerId, editEventId: "" });
     const reason = fd.get("reason") || "Manual batting bonus";
     const row = ensureBattingRow(match, playerId);
+    const eventId = editEventId || id("batbonus");
     row.runs += runs;
     row.balls += balls;
     row.events.unshift({
-      id: id("batbonus"),
+      id: eventId,
       type: "batting",
       key: "manualBonus",
       label: "Manual batting bonus",
@@ -2490,10 +2495,11 @@ async function handleForm(event) {
       runs,
       balls,
       summary: `+${runs} R / ${balls} B`,
-      detail: `${activityDay} / ${reason}`,
+      detail: `${activityDay} / ${reason} / manual bonus ignores all-out and half-score after wicket`,
+      reason,
       at: new Date().toISOString(),
     });
-    addAutoCommentary(match, `${playerName(playerId)} receives a manual batting bonus of ${runs} runs${balls ? ` from ${balls} balls` : ""}: ${reason}.`);
+    addAutoCommentary(match, `${playerName(playerId)} ${editEventId ? "updates" : "receives"} a manual batting bonus of ${runs} runs${balls ? ` from ${balls} balls` : ""} for ${teamName(byId(data.players, playerId)?.teamId)} on ${activityDay}: ${reason}.`);
     saveData(); render();
   }
   if (type === "bowling-score") {
@@ -2594,21 +2600,23 @@ async function handleForm(event) {
   }
   if (type === "bowling-bonus") {
     const match = byId(data.matches, fd.get("matchId"));
+    const matchTeams = [match.teamAId, match.teamBId].filter(Boolean);
+    const matchPlayerIds = new Set(matchTeams.flatMap((teamId) => teamPlayers(teamId).map((player) => player.id)));
     const bowlerId = fd.get("playerId");
-    if (!bowlerId) return toast("Select a bowler");
-    const selectedBowlerIds = new Set(bowlingAssignmentsForTeam(match, match.bowlingTeamId).map((bowler) => bowler.playerId).filter(Boolean));
-    const validBowler = teamPlayers(match.bowlingTeamId).some((player) => player.id === bowlerId) && (!selectedBowlerIds.size || selectedBowlerIds.has(bowlerId));
-    if (!validBowler) return toast("Select a bowler from the bowling team");
+    if (!bowlerId || !matchPlayerIds.has(bowlerId)) return toast("Select a player from this match");
     const wickets = Number(fd.get("wickets") || 0);
     const runs = Number(fd.get("runs") || 0);
-    const bowlingDay = fd.get("bowlingDay") || bowlerAssignment(match, bowlerId)?.day || "";
-    rememberLiveForm(match.id, "bowlingBonus", { bowlingDay, playerId: bowlerId });
+    const bowlingDay = fd.get("bowlingDay") || match.currentDay || bowlerAssignment(match, bowlerId)?.day || "";
+    const editEventId = fd.get("editEventId");
+    if (editEventId) removeBowlingAdminEvent(match, editEventId);
+    rememberLiveForm(match.id, "bowlingBonus", { bowlingDay, playerId: bowlerId, editEventId: "" });
     const reason = fd.get("reason") || "Manual bowling bonus";
     const row = ensureBowlingRow(match, bowlerId);
+    const eventId = editEventId || id("bowlbonus");
     row.wickets += wickets;
     row.runs += runs;
     row.events.unshift({
-      id: id("bowlbonus"),
+      id: eventId,
       type: "bowling",
       key: "manualBonus",
       label: "Manual bowling bonus",
@@ -2618,9 +2626,10 @@ async function handleForm(event) {
       bowlingDay,
       summary: `+${wickets} W / ${runs} R impact`,
       detail: `${bowlingDay ? `${bowlingDay} / ` : ""}${reason}`,
+      reason,
       at: new Date().toISOString(),
     });
-    addAutoCommentary(match, `${playerName(bowlerId)} receives manual bowling impact: ${wickets} wickets, ${runs} run impact. ${reason}.`);
+    addAutoCommentary(match, `${playerName(bowlerId)} ${editEventId ? "updates" : "receives"} manual bowling impact: ${wickets} wickets, ${runs} run impact. ${reason}.`);
     saveData(); render();
   }
   if (type === "complete-match") {
@@ -2749,6 +2758,26 @@ function handleChange(event) {
     render();
     return;
   }
+  const battingBonusForm = event.target.closest('form[data-form="batting-bonus"]');
+  if (battingBonusForm && ["activityDay", "playerId"].includes(event.target.name)) {
+    if (!requireAdmin()) return;
+    const matchId = battingBonusForm.matchId?.value || activeAdminMatch()?.id;
+    rememberLiveForm(matchId, "battingBonus", {
+      activityDay: battingBonusForm.activityDay?.value || "",
+      playerId: battingBonusForm.playerId?.value || "",
+    });
+    return;
+  }
+  const bowlingBonusForm = event.target.closest('form[data-form="bowling-bonus"]');
+  if (bowlingBonusForm && ["bowlingDay", "playerId"].includes(event.target.name)) {
+    if (!requireAdmin()) return;
+    const matchId = bowlingBonusForm.matchId?.value || activeAdminMatch()?.id;
+    rememberLiveForm(matchId, "bowlingBonus", {
+      bowlingDay: bowlingBonusForm.bowlingDay?.value || "",
+      playerId: bowlingBonusForm.playerId?.value || "",
+    });
+    return;
+  }
   const playerTeamSelect = event.target.closest('[data-action="select-admin-player-team"]');
   if (playerTeamSelect) {
     if (!requireAdmin()) return;
@@ -2873,7 +2902,7 @@ function handleClick(event) {
   }
   if (action === "add-extra") {
     const match = byId(data.matches, el.dataset.match);
-    const rule = rules().extras.find((r) => r[0] === el.dataset.key);
+    const rule = scoringRules.extras.find((r) => r[0] === el.dataset.key);
     if (isCurrentTeamAllOut(match)) return toast("Team is all out. No more scoring allowed.");
     match.extrasByTeam ||= {};
     match.extrasByTeam[match.battingTeamId] = Number(match.extrasByTeam[match.battingTeamId] || 0) + rule[2];
@@ -2885,6 +2914,19 @@ function handleClick(event) {
     const match = byId(data.matches, el.dataset.match);
     const found = findBattingAdminEvent(match, el.dataset.event);
     if (!found) return toast("Batting entry not found");
+    if (found.event.key === "manualBonus") {
+      rememberLiveForm(match.id, "battingBonus", {
+        activityDay: found.event.activityDay || match.currentDay || "Wednesday",
+        playerId: found.playerId,
+        runs: found.event.runs || 0,
+        balls: found.event.balls || 0,
+        reason: found.event.reason || "",
+        editEventId: found.event.id,
+      });
+      toast("Manual batting bonus loaded for editing");
+      render();
+      return;
+    }
     rememberLiveForm(match.id, "batting", {
       activityDay: found.event.activityDay || match.currentDay || "Wednesday",
       playerId: found.playerId,
@@ -2906,6 +2948,19 @@ function handleClick(event) {
     const match = byId(data.matches, el.dataset.match);
     const found = findBowlingAdminEvent(match, el.dataset.event);
     if (!found) return toast("Bowling entry not found");
+    if (found.event.key === "manualBonus") {
+      rememberLiveForm(match.id, "bowlingBonus", {
+        bowlingDay: found.event.bowlingDay || match.currentDay || "Wednesday",
+        playerId: found.playerId,
+        wickets: found.event.wickets || 0,
+        runs: found.event.runs || 0,
+        reason: found.event.reason || "",
+        editEventId: found.event.id,
+      });
+      toast("Manual bowling bonus loaded for editing");
+      render();
+      return;
+    }
     rememberLiveForm(match.id, "bowling", {
       bowlingDay: found.event.bowlingDay || match.currentDay || "Wednesday",
       playerId: found.playerId,
