@@ -448,6 +448,18 @@ function displayPlayerName(player) {
   return `${player.name}${tag ? ` ${tag}` : ""}`;
 }
 function playerName(playerId) { return displayPlayerName(byId(data.players, playerId)); }
+function isPlayerNotOutInLiveMatch(match, playerId) {
+  if (!match || match.status !== "live" || !playerId) return false;
+  const player = byId(data.players, playerId);
+  if (!player || ![match.teamAId, match.teamBId].includes(player.teamId)) return false;
+  return !Boolean(match.batting?.[playerId]?.out);
+}
+function matchPlayerName(match, playerId) {
+  return `${playerName(playerId)}${isPlayerNotOutInLiveMatch(match, playerId) ? "*" : ""}`;
+}
+function matchDisplayPlayerName(match, player) {
+  return `${displayPlayerName(player)}${isPlayerNotOutInLiveMatch(match, player?.id) ? "*" : ""}`;
+}
 function teamPlayers(teamId) { return data.players.filter((player) => player.teamId === teamId); }
 function teamOwner(teamId) { return teamPlayers(teamId).find((player) => player.role === "owner") || null; }
 function initials(name) { return String(name || "T").split(/\s+/).map((x) => x[0]).join("").slice(0, 3).toUpperCase(); }
@@ -711,7 +723,7 @@ function battingAdminEventList(match) {
   const collapsed = adminCollapsed[`${match.id}:battingEntries`] !== false;
   const events = battingAdminEvents(match).slice(0, 16);
   return `<div class="collapsible-head"><button class="button small" type="button" data-action="toggle-admin-collapse" data-key="${match.id}:battingEntries">${collapsed ? "Show" : "Hide"} Batting Entries (${events.length})</button></div>${events.length ? `<div class="admin-event-list ${collapsed ? "collapsed" : ""}">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
-    <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / Qty ${esc(event.qty || 1)} / ${esc(event.activityDay || "-")} / ${esc(event.summary || "")}</small></span>
+    <span><strong>${esc(matchPlayerName(match, playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / Qty ${esc(event.qty || 1)} / ${esc(event.activityDay || "-")} / ${esc(event.summary || "")}</small></span>
     <span class="row-actions"><button class="button small" data-action="edit-batting-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-batting-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
   </div>`).join("")}</div>` : `<p class="muted">No batting scoring entries yet.</p>`}`;
 }
@@ -719,7 +731,7 @@ function bowlingAdminEventList(match) {
   const collapsed = adminCollapsed[`${match.id}:bowlingEntries`] !== false;
   const events = bowlingAdminEvents(match).slice(0, 16);
   return `<div class="collapsible-head"><button class="button small" type="button" data-action="toggle-admin-collapse" data-key="${match.id}:bowlingEntries">${collapsed ? "Show" : "Hide"} Bowling Entries (${events.length})</button></div>${events.length ? `<div class="admin-event-list ${collapsed ? "collapsed" : ""}">${events.map(({ playerId, event }) => `<div class="list-item admin-event-row">
-    <span><strong>${esc(playerName(playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / ${esc(event.bowlingDay || "-")} / ${esc(event.wickets || 0)} W / ${esc(event.runs || 0)} R${event.targetId ? ` / Target ${esc(playerName(event.targetId))}` : ""}</small></span>
+    <span><strong>${esc(matchPlayerName(match, playerId))}</strong> <small class="muted">${esc(event.label || event.key)} / ${esc(event.bowlingDay || "-")} / ${esc(event.wickets || 0)} W / ${esc(event.runs || 0)} R${event.targetId ? ` / Target ${esc(matchPlayerName(match, event.targetId))}` : ""}</small></span>
     <span class="row-actions"><button class="button small" data-action="edit-bowling-event" data-match="${match.id}" data-event="${event.id}">Edit</button> <button class="button small danger" data-action="delete-bowling-event" data-match="${match.id}" data-event="${event.id}">Remove</button></span>
   </div>`).join("")}</div>` : `<p class="muted">No bowling impact entries yet.</p>`}`;
 }
@@ -799,7 +811,7 @@ function bowlingClaimSummary(match, teamId) {
   if (paidVisitorMembers >= 6) messages.push({ wickets: 3, text: `${paidVisitorMembers}/9 members registered a paid visitor ${dayText}. Team can claim 3 specific wickets.` });
   else messages.push({ wickets: 0, text: `${paidVisitorMembers}/9 members registered a paid visitor ${dayText}. Need ${Math.max(0, 6 - paidVisitorMembers)} more for 3 wicket claim.` });
   if (allCriteriaPlayers.length) {
-    messages.push({ wickets: allCriteriaPlayers.length * 2, text: `${allCriteriaPlayers.map((item) => `${playerName(item.playerId)} (${shortDay(item.day)})`).join(", ")} completed all tracked criteria on their own bowling day. Claim 2 specific wickets per qualifying bowler-day.` });
+    messages.push({ wickets: allCriteriaPlayers.length * 2, text: `${allCriteriaPlayers.map((item) => `${matchPlayerName(match, item.playerId)} (${shortDay(item.day)})`).join(", ")} completed all tracked criteria on their own bowling day. Claim 2 specific wickets per qualifying bowler-day.` });
   } else {
     messages.push({ wickets: 0, text: "No assigned bowler has completed all tracked criteria on their own bowling day yet for the 2-wicket claim." });
   }
@@ -821,10 +833,10 @@ function wicketClaimDayStatus(match, teamId, day = "") {
   ];
   const pending = checks.filter((item) => item.value < item.required);
   const complete = Boolean(active.playerId && !pending.length);
-  return { ...active, row, checks, pending, complete };
+  return { ...active, match, row, checks, pending, complete };
 }
 function wicketClaimDayStatusHtml(dayStatus) {
-  const bowler = dayStatus.playerId ? playerName(dayStatus.playerId) : "Not selected";
+  const bowler = dayStatus.playerId ? matchPlayerName(dayStatus.match, dayStatus.playerId) : "Not selected";
   return `<div class="day-claim-status">
     <p class="${dayStatus.complete ? "green" : "muted"}"><strong>${esc(shortDay(dayStatus.day))} bowler:</strong> ${esc(bowler)} / ${dayStatus.complete ? "all criteria complete, claim 2 wickets" : "all-criteria claim pending for this day"}</p>
     <div class="claim-check-grid">
@@ -850,7 +862,7 @@ function bowlingTrackerPanel(match) {
     <form class="grid" data-form="bowling-tracker">
       <input type="hidden" name="matchId" value="${match.id}">
       <label>Bowling day<select name="day">${dayOptions(day)}</select></label>
-      <label>Member<select name="playerId">${playerOptions(playerId, match.bowlingTeamId)}</select></label>
+      <label>Member<select name="playerId">${matchTeamPlayerOptions(match, playerId, match.bowlingTeamId)}</select></label>
       <label>1-2-1s<input name="oneToOnes" type="number" min="0" step="1" value="${esc(current.oneToOnes || 0)}"></label>
       <label>Referrals<input name="referrals" type="number" min="0" step="1" value="${esc(current.referrals || 0)}"></label>
       <label>Paid Visitor Registered<input name="paidVisitors" type="number" min="0" step="1" value="${esc(current.paidVisitors || 0)}"></label>
@@ -859,7 +871,7 @@ function bowlingTrackerPanel(match) {
     </form>
     <div class="mini-list" style="margin-top:.85rem">
       <div class="muted"><small>Overall tracking for all bowling team members.</small></div>
-      ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row"><span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span></div>`).join("")}
+      ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row"><span><strong>${esc(matchDisplayPlayerName(match, player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span></div>`).join("")}
     </div>
   </div>`;
 }
@@ -876,7 +888,7 @@ function bowlingClaimScorecardPanel(match, teamId) {
     <div class="mini-list scorecard-tracker-list">
       <div class="muted"><small>Overall tracking for all bowling team members.</small></div>
       ${totals.map(({ player, totals: row }) => `<div class="list-item tracker-score-row">
-        <span><strong>${esc(displayPlayerName(player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span>
+        <span><strong>${esc(matchDisplayPlayerName(match, player))}</strong><small class="muted"> ${esc(trackingSummaryText(row))}</small></span>
       </div>`).join("")}
     </div>
   </div>`;
@@ -888,7 +900,11 @@ function matchTeamOptions(match, selected = "") {
   return `<option value="">Select team</option>${[match.teamAId, match.teamBId].filter(Boolean).map((teamId) => `<option value="${teamId}" ${teamId === selected ? "selected" : ""}>${esc(teamName(teamId))}</option>`).join("")}`;
 }
 function matchPlayerOptions(match, selected = "") {
-  return `<option value="">Select player</option>${[match.teamAId, match.teamBId].flatMap((teamId) => teamPlayers(teamId)).map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(displayPlayerName(p))} - ${esc(teamName(p.teamId))}</option>`).join("")}`;
+  return `<option value="">Select player</option>${[match.teamAId, match.teamBId].flatMap((teamId) => teamPlayers(teamId)).map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(matchDisplayPlayerName(match, p))} - ${esc(teamName(p.teamId))}</option>`).join("")}`;
+}
+function matchTeamPlayerOptions(match, selected = "", teamId = "") {
+  const players = teamId ? teamPlayers(teamId) : [match.teamAId, match.teamBId].flatMap((id) => teamPlayers(id));
+  return `<option value="">Select player</option>${players.map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(matchDisplayPlayerName(match, p))} - ${esc(teamName(p.teamId))}</option>`).join("")}`;
 }
 function potmContenderScore(row, context = {}) {
   const battingImpact = Number(row.runs || 0) * 1.25;
@@ -909,7 +925,7 @@ function matchAwardContenders(match, awardType = "mvp") {
   const rows = matchRows
     .map((row) => {
       const score = awardType === "potm" ? potmContenderScore(row, potmContext) : Number(row.mvp || 0);
-      return { ...row, contenderScore: Math.max(0, score) };
+      return { ...row, match, contenderScore: Math.max(0, score) };
     })
     .sort((a, b) => b.contenderScore - a.contenderScore || b.runs - a.runs || b.wickets - a.wickets || displayPlayerName(a.player).localeCompare(displayPlayerName(b.player)));
   const maxScore = Math.max(0, ...rows.map((row) => row.contenderScore));
@@ -921,7 +937,7 @@ function matchAwardContenders(match, awardType = "mvp") {
 function matchAwardOptionLabel(row, awardType = "mvp") {
   const figures = `${row.runs} R, ${row.wickets} W, ${row.bowlRuns} RC`;
   const scoreText = awardType === "potm" ? "POTM" : "MVP";
-  return `${displayPlayerName(row.player)} - ${teamName(row.player.teamId)} - ${row.deservingPercent}% ${scoreText} contender (${figures})`;
+  return `${matchDisplayPlayerName(row.match, row.player)} - ${teamName(row.player.teamId)} - ${row.deservingPercent}% ${scoreText} contender (${figures})`;
 }
 function matchAwardOptions(match, selected = "", awardType = "mvp") {
   const contenders = matchAwardContenders(match, awardType);
@@ -935,7 +951,7 @@ function selectedBowlerOptions(match, selected = "") {
   const players = selectedIds.size ? teamPlayers(match.bowlingTeamId).filter((player) => selectedIds.has(player.id)) : teamPlayers(match.bowlingTeamId);
   return `<option value="">Select bowler</option>${players.map((p) => {
     const day = p.role === "owner" ? "Tuesday" : (bowlingSetup.find((bowler) => bowler.playerId === p.id)?.day || "");
-    return `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(displayPlayerName(p))}${day ? ` - ${esc(day)}` : ""}</option>`;
+    return `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(matchDisplayPlayerName(match, p))}${day ? ` - ${esc(day)}` : ""}</option>`;
   }).join("")}`;
 }
 function dayOptions(selected = "") {
@@ -976,17 +992,17 @@ function scoreboardDay(match) {
 function scoreboardBowlerText(match) {
   const bowler = scoreboardBowlerForDay(match);
   if (!bowler) return "Bowler not selected";
-  return `${playerName(bowler.playerId)}${bowler.day ? ` (${shortDay(bowler.day)})` : ""}`;
+  return `${matchPlayerName(match, bowler.playerId)}${bowler.day ? ` (${shortDay(bowler.day)})` : ""}`;
 }
 function selectedBowlersText(match, teamId) {
   return bowlersFor(match, teamId).filter((bowler) => bowler.playerId).slice(0, 3)
-    .map((bowler) => `${playerName(bowler.playerId)}${bowler.day ? ` (${shortDay(bowler.day)})` : ""}`)
+    .map((bowler) => `${matchPlayerName(match, bowler.playerId)}${bowler.day ? ` (${shortDay(bowler.day)})` : ""}`)
     .join(", ");
 }
 function selectedBowlersHtml(match, teamId) {
   const bowlers = bowlersFor(match, teamId).filter((bowler) => bowler.playerId).slice(0, 3);
   return bowlers.length
-    ? bowlers.map((bowler) => `<strong class="setup-value">${esc(playerName(bowler.playerId))}</strong>${bowler.day ? ` <span class="muted">(${esc(shortDay(bowler.day))})</span>` : ""}`).join(", ")
+    ? bowlers.map((bowler) => `<strong class="setup-value">${esc(matchPlayerName(match, bowler.playerId))}</strong>${bowler.day ? ` <span class="muted">(${esc(shortDay(bowler.day))})</span>` : ""}`).join(", ")
     : "Not selected";
 }
 function imposterNameForTeam(match, teamId) {
@@ -997,7 +1013,7 @@ function isVisibleImposter(match, teamId, playerId) {
   return match.status === "completed" && imposterForTeam(match, opponentTeamId(match, teamId)) === playerId;
 }
 function openingSetupPanel(match, teamId) {
-  const openers = openersFor(match, teamId).map(playerName).join(", ") || "Not selected";
+  const openers = openersFor(match, teamId).map((playerId) => matchPlayerName(match, playerId)).join(", ") || "Not selected";
   const imposter = imposterNameForTeam(match, teamId);
   return `<div class="card setup-mini-panel" style="box-shadow:none">
     <strong class="setup-line">Openers: <span class="setup-value">${esc(openers)}</span></strong>
@@ -1015,8 +1031,8 @@ function battingRows(match) {
     const row = match.batting[player.id] || { runs: 0, balls: 0, out: false };
     const sr = row.balls ? ((row.runs / row.balls) * 100).toFixed(1) : "0.0";
     const imposter = isVisibleImposter(match, match.battingTeamId, player.id);
-    const batterName = `${esc(displayPlayerName(player))}${openers.includes(player.id) ? " (Op)" : ""}${imposter ? ` <span class="imposter-name">(Imp)</span>` : ""}${row.out ? "" : "*"}`;
-    const wicketText = row.out && row.wicketBy ? ` / wicket by ${playerName(row.wicketBy)}` : "";
+    const batterName = `${esc(matchDisplayPlayerName(match, player))}${openers.includes(player.id) ? " (Op)" : ""}${imposter ? ` <span class="imposter-name">(Imp)</span>` : ""}`;
+    const wicketText = row.out && row.wicketBy ? ` / wicket by ${matchPlayerName(match, row.wicketBy)}` : "";
     return `<tr><td><strong class="${imposter ? "imposter-name" : ""}">${batterName}</strong><div class="muted">${row.out ? `out${wicketText} / future scoring 50%` : "not out"}</div></td><td class="orange">${row.runs || 0}</td><td>${row.balls || 0}</td><td>${sr}</td></tr>`;
   }).join("");
 }
@@ -1028,7 +1044,7 @@ function bowlingRows(match) {
     const figures = derivedBowlingFigures(match, player.id);
     const economy = figures.balls ? figures.economy.toFixed(2) : "0.00";
     const day = bowlers.find((b) => b.playerId === player.id)?.day || "";
-    return `<tr><td><strong>${esc(displayPlayerName(player))}</strong> ${day ? `<span class="pill">${esc(shortDay(day))}</span>` : ""}</td><td>${figures.runs || 0}</td><td>${figures.balls || 0}</td><td class="purple">${figures.wickets || 0}</td><td>${economy}</td></tr>`;
+    return `<tr><td><strong>${esc(matchDisplayPlayerName(match, player))}</strong> ${day ? `<span class="pill">${esc(shortDay(day))}</span>` : ""}</td><td>${figures.runs || 0}</td><td>${figures.balls || 0}</td><td class="purple">${figures.wickets || 0}</td><td>${economy}</td></tr>`;
   }).join("");
 }
 function sponsorLogo(item) {
@@ -1182,9 +1198,9 @@ function batsmenSummaryForTeam(match, teamId) {
   }).map(({ player, row }) => {
     const sr = row.balls ? ((row.runs / row.balls) * 100).toFixed(1) : "0.0";
     const imposter = isVisibleImposter(match, teamId, player.id);
-    const name = `${esc(displayPlayerName(player))}${openers.includes(player.id) ? " (Op)" : ""}${imposter ? ` <span class="imposter-name">(Imp)</span>` : ""}${row.out ? "" : "*"}`;
+    const name = `${esc(matchDisplayPlayerName(match, player))}${openers.includes(player.id) ? " (Op)" : ""}${imposter ? ` <span class="imposter-name">(Imp)</span>` : ""}`;
     const status = row.out
-      ? `out${row.wicketBy ? ` / wicket by ${playerName(row.wicketBy)}` : ""} / 50% future score`
+      ? `out${row.wicketBy ? ` / wicket by ${matchPlayerName(match, row.wicketBy)}` : ""} / 50% future score`
       : "not out";
     return `
       <div class="player-summary clickable-player" data-action="open-player-detail" data-match="${match.id}" data-player="${player.id}" role="button" tabindex="0" aria-label="Open scoring details for ${esc(displayPlayerName(player))}">
@@ -1226,7 +1242,7 @@ function bowlersSummaryForTeam(match, teamId) {
     return `
       <div class="player-summary bowler-summary clickable-player" data-action="open-player-detail" data-match="${match.id}" data-player="${player.id}" role="button" tabindex="0" aria-label="Open scoring details for ${esc(displayPlayerName(player))}">
         <div>
-          <strong>${esc(displayPlayerName(player))}</strong>
+          <strong>${esc(matchDisplayPlayerName(match, player))}</strong>
           <span class="muted">${esc(roleText)}</span>
         </div>
         <div class="score-metrics">
@@ -1308,7 +1324,7 @@ function homeLiveScoreCard(match) {
   const score = scoreOf(match);
   const target = targetInfo(match);
   const currentOpeners = openersFor(match, match.battingTeamId);
-  const openers = currentOpeners.map(playerName).join(", ") || "Openers not selected";
+  const openers = currentOpeners.map((playerId) => matchPlayerName(match, playerId)).join(", ") || "Openers not selected";
   const bowler = scoreboardBowlerText(match);
   const dayText = shortDay(scoreboardDay(match));
   return `
@@ -1340,7 +1356,7 @@ function liveScoreCard(match, compact = false) {
   const bowl = bowlingScore(match);
   const target = targetInfo(match);
   const currentOpeners = openersFor(match, match.battingTeamId);
-  const openers = currentOpeners.map(playerName).join(", ") || "Openers not selected";
+  const openers = currentOpeners.map((playerId) => matchPlayerName(match, playerId)).join(", ") || "Openers not selected";
   const bowler = scoreboardBowlerText(match);
   const dayText = shortDay(scoreboardDay(match));
   return `
@@ -1395,7 +1411,7 @@ function selectedBowlersPanel(match, teamId) {
 }
 function openingBatsmenPanel(match, teamId) {
   const openers = openersFor(match, teamId);
-  const html = openers.length ? openers.map((playerId) => `<strong class="setup-value">${esc(playerName(playerId))}</strong>`).join(", ") : "Not selected";
+  const html = openers.length ? openers.map((playerId) => `<strong class="setup-value">${esc(matchPlayerName(match, playerId))}</strong>`).join(", ") : "Not selected";
   return miniPanelRich("Opening batsmen", html);
 }
 function scoreTable(title, heads, rows) {
@@ -1567,7 +1583,7 @@ function playerInningsBreakdown(playerId, matches) {
         runs,
         balls,
         strikeRate: balls ? ((runs / balls) * 100).toFixed(1) : "0.0",
-        status: battingRow?.out ? `Out${battingRow.wicketBy ? ` by ${playerName(battingRow.wicketBy)}` : ""}` : battingRow ? "Not out *" : "-",
+        status: battingRow?.out ? `Out${battingRow.wicketBy ? ` by ${playerName(battingRow.wicketBy)}` : ""}` : battingRow ? "Not out" : "-",
       });
     }
     if (bowlingRow || figures.balls || figures.runs || figures.wickets) {
@@ -1766,10 +1782,10 @@ function liveAdmin() {
     return `<div class="card"><h3>${esc(teamName(teamId))} Setup</h3>
       <div class="form-grid">
         <label>Powerplay day<select name="ppDay_${teamId}">${dayOptions(setup.battingPowerplayDay || (teamId === match.teamAId ? "Wednesday" : "Saturday"))}</select></label>
-        <label>Secret imposter<select name="imposter_${teamId}">${playerOptions(setup.secretImposterId || "", opponentId)}</select></label>
-        <label>Opener 1<select name="opener_${teamId}_0">${playerOptions(setup.openers?.[0] || "", teamId)}</select></label>
-        <label>Opener 2<select name="opener_${teamId}_1">${playerOptions(setup.openers?.[1] || "", teamId)}</select></label>
-        ${[0,1,2].map((i) => `<label>Bowler ${i + 1}<select name="bowler_${teamId}_${i}">${playerOptions(setup.bowlers?.[i]?.playerId || "", teamId)}</select></label><label>Bowling day ${i + 1}<select name="bowlerDay_${teamId}_${i}">${dayOptions(setup.bowlers?.[i]?.day || ["Wednesday","Thursday","Friday"][i])}</select></label>`).join("")}
+        <label>Secret imposter<select name="imposter_${teamId}">${matchTeamPlayerOptions(match, setup.secretImposterId || "", opponentId)}</select></label>
+        <label>Opener 1<select name="opener_${teamId}_0">${matchTeamPlayerOptions(match, setup.openers?.[0] || "", teamId)}</select></label>
+        <label>Opener 2<select name="opener_${teamId}_1">${matchTeamPlayerOptions(match, setup.openers?.[1] || "", teamId)}</select></label>
+        ${[0,1,2].map((i) => `<label>Bowler ${i + 1}<select name="bowler_${teamId}_${i}">${matchTeamPlayerOptions(match, setup.bowlers?.[i]?.playerId || "", teamId)}</select></label><label>Bowling day ${i + 1}<select name="bowlerDay_${teamId}_${i}">${dayOptions(setup.bowlers?.[i]?.day || ["Wednesday","Thursday","Friday"][i])}</select></label>`).join("")}
       </div>
     </div>`;
   };
@@ -1801,8 +1817,8 @@ function liveAdmin() {
       <button class="button primary full">Save Match State</button>
     </form></div>
     <div class="grid two">
-      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(battingMemory.editEventId || "")}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${playerOptions(battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${battingEventOptions(match, battingMemory.playerId || "", battingMemory.event)}</select></label><label>Quantity<input type="number" name="qty" min="1" value="${esc(battingMemory.qty || 1)}"></label><button class="button primary">${battingMemory.editEventId ? "Update Runs" : "Add Runs"}</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double runs and double balls only on ${esc(battingPowerplayDay)} while powerplay is on. Those doubled runs and balls also count in that day's bowler figures. Event dropdown counts show only the selected player's entries in this match.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Batting Entries</h4>${battingAdminEventList(match)}</div>
-      <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(bowlingMemory.editEventId || "")}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${playerOptions(bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">${bowlingMemory.editEventId ? "Update Bowling Impact" : "Apply Bowling Impact"}</button></form><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Bowling Entries</h4>${bowlingAdminEventList(match)}</div>
+      <div class="card" id="admin-batting-score"><h3>Batting Scoring</h3><form class="grid" data-form="batting-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(battingMemory.editEventId || "")}"><label>Activity day<select name="activityDay">${dayOptions(battingMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${matchTeamPlayerOptions(match, battingMemory.playerId || "", match.battingTeamId)}</select></label><label>Scoring event<select name="event">${battingEventOptions(match, battingMemory.playerId || "", battingMemory.event)}</select></label><label>Quantity<input type="number" name="qty" min="1" value="${esc(battingMemory.qty || 1)}"></label><button class="button primary">${battingMemory.editEventId ? "Update Runs" : "Add Runs"}</button></form><p class="muted" style="margin:.6rem 0 0">Openers score double runs and double balls only on ${esc(battingPowerplayDay)} while powerplay is on. Those doubled runs and balls also count in that day's bowler figures. Event dropdown counts show only the selected player's entries in this match.</p><div class="chips" style="margin-top:.75rem">${rules().extras.map(([key,label,r]) => `<button class="button small" data-action="add-extra" data-match="${match.id}" data-key="${key}">${label} +${r}</button>`).join("")}</div><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Batting Entries</h4>${battingAdminEventList(match)}</div>
+      <div class="card" id="admin-bowling-score"><h3>Bowling / Wickets</h3><form class="grid" data-form="bowling-score"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(bowlingMemory.editEventId || "")}"><label>Bowling day<select name="bowlingDay">${dayOptions(bowlingMemory.bowlingDay || match.currentDay || bowlingSetup.bowlers?.[0]?.day || "Wednesday")}</select></label><label>Bowler<select name="playerId">${selectedBowlerOptions(match, bowlingMemory.playerId || "")}</select></label><label>Bowling event<select name="event">${rules().bowling.map(([key,label,w,r]) => `<option value="${key}" ${key === bowlingMemory.event ? "selected" : ""}>${label} (${w} wicket, ${r} runs)</option>`).join("")}</select></label><label>Target batter<select name="targetId">${matchTeamPlayerOptions(match, bowlingMemory.targetId || "", match.battingTeamId)}</select></label><button class="button purple">${bowlingMemory.editEventId ? "Update Bowling Impact" : "Apply Bowling Impact"}</button></form><h4 class="panel-title" style="font-size:1.1rem;margin-top:1rem">Bowling Entries</h4>${bowlingAdminEventList(match)}</div>
     </div>
     <div class="grid two" id="admin-bonuses">
       <div class="card"><h3>Manual Batting Bonus</h3><form class="grid" data-form="batting-bonus"><input type="hidden" name="matchId" value="${match.id}"><input type="hidden" name="editEventId" value="${esc(battingBonusMemory.editEventId || "")}"><label>Activity day<select name="activityDay">${dayOptions(battingBonusMemory.activityDay || match.currentDay || battingPowerplayDay)}</select></label><label>Player<select name="playerId">${matchPlayerOptions(match, battingBonusMemory.playerId || "")}</select></label><label>Bonus runs<input name="runs" type="number" step="0.1" value="${esc(battingBonusMemory.runs ?? 0)}"></label><label>Bonus balls<input name="balls" type="number" step="1" min="0" value="${esc(battingBonusMemory.balls ?? 0)}"></label><label>Reason<input name="reason" placeholder="Bonus reason" value="${esc(battingBonusMemory.reason || "")}"></label><button class="button primary">${battingBonusMemory.editEventId ? "Update Batting Bonus" : "Add Batting Bonus"}</button></form><p class="muted" style="margin:.6rem 0 0">Manual bonus can be added to either team at any time. It ignores all-out and half-score after wicket, but still counts for secret imposter transfer.</p></div>
@@ -1812,8 +1828,8 @@ function liveAdmin() {
       <div class="card" id="admin-wickets"><h3>Player Wickets</h3><div class="mini-list">${teamPlayers(match.battingTeamId).map((p) => {
         const row = match.batting[p.id] || { out: false, wicketBy: "" };
         return `<div class="list-item wicket-admin-row">
-          <span>${esc(displayPlayerName(p))} <small class="muted">${row.out ? `Out${row.wicketBy ? ` / wicket by ${playerName(row.wicketBy)}` : ""} / future scoring 50%` : "Not out"}</small></span>
-          <label class="compact-label">Wicket by<select data-action="select-wicket-bowler" data-match="${match.id}" data-player="${p.id}">${playerOptions(row.wicketBy || "", match.bowlingTeamId)}</select></label>
+          <span>${esc(matchDisplayPlayerName(match, p))} <small class="muted">${row.out ? `Out${row.wicketBy ? ` / wicket by ${matchPlayerName(match, row.wicketBy)}` : ""} / future scoring 50%` : "Not out"}</small></span>
+          <label class="compact-label">Wicket by<select data-action="select-wicket-bowler" data-match="${match.id}" data-player="${p.id}">${matchTeamPlayerOptions(match, row.wicketBy || "", match.bowlingTeamId)}</select></label>
           <button class="button small purple" data-action="toggle-out" data-match="${match.id}" data-player="${p.id}">${row.out ? "Undo out" : "Mark out"}</button>
         </div>`;
       }).join("")}</div><button class="button danger" data-action="all-out" data-match="${match.id}" style="margin-top:.75rem">Mark Team All Out</button></div>
@@ -2064,7 +2080,7 @@ function openScorecard(matchId, activeView = "") {
     ${setupHtml}
     ${scorecardDetailView(match, view)}
     ${livePreviousInningsSection(match, view)}
-    <div class="card" style="margin-top:1rem"><h3>Match Summary</h3><p class="muted">Score: ${esc(finalScoreText(match))}${target ? ` / Target ${target.target} / Need ${target.required} to win` : ""}</p><p class="muted">Started: ${esc(matchTimeText(match.startAt))}. Completed: ${esc(matchTimeText(match.completedAt))}.</p><p class="muted">Winner: ${esc(teamName(match.winnerId))}. MVP: ${esc(playerName(match.matchMvpId))}. POTM: ${esc(playerName(match.playerOfMatchId))}.</p><p class="muted">* not out</p></div>`;
+    <div class="card" style="margin-top:1rem"><h3>Match Summary</h3><p class="muted">Score: ${esc(finalScoreText(match))}${target ? ` / Target ${target.target} / Need ${target.required} to win` : ""}</p><p class="muted">Started: ${esc(matchTimeText(match.startAt))}. Completed: ${esc(matchTimeText(match.completedAt))}.</p><p class="muted">Winner: ${esc(teamName(match.winnerId))}. MVP: ${esc(playerName(match.matchMvpId))}. POTM: ${esc(playerName(match.playerOfMatchId))}.</p>${match.status === "live" ? `<p class="muted">* not out</p>` : ""}</div>`;
   modal.classList.add("open");
   modal.setAttribute("aria-hidden", "false");
 }
@@ -2090,7 +2106,7 @@ function openPlayerDetail(matchId, playerId) {
   modalBody.innerHTML = `<div class="section-head">
       <div>
         <span class="eyebrow">Player Details</span>
-        <h2>${esc(displayPlayerName(player))}</h2>
+        <h2>${esc(matchDisplayPlayerName(match, player))}</h2>
         <p class="muted">${esc(teamName(player.teamId))} / ${esc(matchTitle(match))}</p>
       </div>
       <button class="button small" data-action="open-scorecard" data-id="${match.id}">Back to Scorecard</button>
@@ -2101,9 +2117,9 @@ function openPlayerDetail(matchId, playerId) {
         <div class="player-detail-line"><span>Runs</span><strong class="orange">${batting.runs || 0}</strong></div>
         <div class="player-detail-line"><span>Balls</span><strong>${batting.balls || 0}</strong></div>
         <div class="player-detail-line"><span>Strike Rate</span><strong>${strikeRate}</strong></div>
-        <div class="player-detail-line"><span>Status</span><strong>${batting.out ? "Out" : "Not out *"}</strong></div>
-        <div class="player-detail-line"><span>Wicket by</span><strong>${batting.out && batting.wicketBy ? esc(playerName(batting.wicketBy)) : "-"}</strong></div>
-        <p class="muted" style="margin-bottom:0">${batting.out ? "Future batting scoring is counted at 50%." : "* not out"}</p>
+        <div class="player-detail-line"><span>Status</span><strong>${batting.out ? "Out" : `Not out${isPlayerNotOutInLiveMatch(match, playerId) ? " *" : ""}`}</strong></div>
+        <div class="player-detail-line"><span>Wicket by</span><strong>${batting.out && batting.wicketBy ? esc(matchPlayerName(match, batting.wicketBy)) : "-"}</strong></div>
+        <p class="muted" style="margin-bottom:0">${batting.out ? "Future batting scoring is counted at 50%." : `${isPlayerNotOutInLiveMatch(match, playerId) ? "* not out" : "Not out"}`}</p>
       </div>
       <div class="card">
         <h3 class="panel-title">Bowling Impact</h3>
@@ -2521,6 +2537,7 @@ async function handleForm(event) {
     rememberLiveForm(match.id, "bowling", { bowlingDay, playerId: bowlerId, targetId, event: fd.get("event"), editEventId: "" });
     const batterPenalty = battingPenaltyForBowlingRule(rule[0], rule[3]);
     if (batterPenalty && !targetId) return toast("Select target batter for Absent/Late penalty");
+    if (targetId && ensureBattingRow(match, targetId).out) return toast("This member is already out in this match");
     const row = ensureBowlingRow(match, bowlerId);
     const eventId = editEventId || id("bowl");
     const appliedWickets = Number(rule[2] || 0) > 0 ? 1 : 0;
@@ -2799,8 +2816,14 @@ function handleChange(event) {
     const match = byId(data.matches, wicketSelect.dataset.match);
     const playerId = wicketSelect.dataset.player;
     const row = ensureBattingRow(match, playerId);
+    const wasOut = Boolean(row.out);
     row.wicketBy = wicketSelect.value;
     if (wicketSelect.value) {
+      if (wasOut) {
+        saveData();
+        render();
+        return;
+      }
       row.out = true;
       row.events.unshift({
         id: id("wicket"),
@@ -2981,6 +3004,7 @@ function handleClick(event) {
   if (action === "toggle-out") {
     const match = byId(data.matches, el.dataset.match);
     const row = ensureBattingRow(match, el.dataset.player);
+    if (row.out && el.textContent.trim() !== "Undo out") return toast("This member is already out in this match");
     row.out = !row.out;
     if (row.out) {
       row.events.unshift({
@@ -3013,6 +3037,7 @@ function handleClick(event) {
     match.allOut = true;
     teamPlayers(match.battingTeamId).forEach((p) => {
       const row = ensureBattingRow(match, p.id);
+      if (row.out) return;
       row.out = true;
       row.events.unshift({
         id: id("allout"),
