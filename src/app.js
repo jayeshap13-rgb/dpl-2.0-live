@@ -1268,6 +1268,7 @@ function renderShell(content) {
 
 function homeView() {
   const liveMatches = data.matches.filter((m) => m.status === "live");
+  const upcomingMatches = data.matches.filter((m) => m.status === "upcoming").slice(0, 2);
   const sponsors = data.sponsors || seed.sponsors;
   renderShell(`
     <div class="hero">
@@ -1292,11 +1293,11 @@ function homeView() {
             <h2 class="panel-title" style="margin-top:1rem">${esc(matchTitle(match))}</h2>
             ${homeLiveScoreCard(match)}
           </div>
-        `).join("") : `
+        `).join("") : upcomingMatches.length ? upcomingMatches.map((match, index) => homeUpcomingMatchCard(match, index)).join("") : `
           <div class="card match-card">
             <span class="live-badge">Live Desk</span>
-            <h2 class="panel-title" style="margin-top:1rem">No live match selected</h2>
-            <div class="empty">Set any match to live from admin.</div>
+            <h2 class="panel-title" style="margin-top:1rem">No upcoming matches</h2>
+            <div class="empty">Add or schedule matches from admin.</div>
           </div>
         `}
       </div>
@@ -1318,6 +1319,28 @@ function homeView() {
     </div>
     ${homeSponsorShowcase()}
   `);
+}
+
+function homeUpcomingMatchCard(match, index) {
+  return `<div class="card match-card home-live-card home-upcoming-card">
+    <span class="live-badge">Upcoming Match ${index + 1}</span>
+    <div class="scorecard-meta-row"><div class="home-match-time">${esc(matchLabel(match))} / ${esc(shortDay(scoreboardDay(match)))}</div><span class="score-status-badge completed">Upcoming</span></div>
+    <h2 class="panel-title" style="margin-top:1rem">${esc(matchTitle(match))}</h2>
+    <div class="home-scoreline">
+      <div class="home-team-block">
+        <div class="team-strip">${teamBadge(match.teamAId)}<div><strong>${esc(teamName(match.teamAId))}</strong><span class="scoreboard-role-label batting-label">Team A</span></div></div>
+      </div>
+      <div class="home-score-number">VS</div>
+      <div class="home-team-block">
+        <div class="team-strip bowling-strip"><div><strong>${esc(teamName(match.teamBId))}</strong><span class="scoreboard-role-label bowling-label">Team B</span></div>${teamBadge(match.teamBId)}</div>
+      </div>
+    </div>
+    <div class="toss-line">Start: ${esc(matchTimeText(match.startAt))}</div>
+    <div class="home-score-meta">
+      <span>Venue ${esc(match.venue || "DPL Arena")}</span>
+      <span>Awaiting toss</span>
+    </div>
+  </div>`;
 }
 
 function homeLiveScoreCard(match) {
