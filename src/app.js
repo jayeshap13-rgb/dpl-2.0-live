@@ -1790,6 +1790,14 @@ function adminPanel(name, html) { return `<section class="admin-panel ${adminTab
 function activeAdminMatch() {
   return byId(data.matches, adminLiveMatchId) || data.matches.find((m) => m.status === "live") || data.matches[0];
 }
+function adminFloatingScorecard(match) {
+  const score = scoreOf(match);
+  return `<div class="admin-floating-score" aria-label="Current batting score">
+    <span>Batting</span>
+    <strong>${esc(teamName(match.battingTeamId))}</strong>
+    <b>${score.runs}/${score.wickets}</b>
+  </div>`;
+}
 function liveAdmin() {
   const match = activeAdminMatch();
   const battingSetup = setupForTeam(match, match.battingTeamId);
@@ -1823,6 +1831,7 @@ function liveAdmin() {
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-complete">Finish</button>
       <button class="button small" type="button" data-action="scroll-admin-section" data-target="admin-commentary">Commentary</button>
     </div>
+    ${adminFloatingScorecard(match)}
     <div class="card" id="admin-match-state"><h2>Edit Live Scores</h2><form class="form-grid" data-form="match-state">
       <label>Match<select name="matchId" data-action="select-admin-live-match">${matchOptions(match.id)}</select></label>
       <label>Status<select name="status"><option ${match.status==="upcoming"?"selected":""}>upcoming</option><option ${match.status==="live"?"selected":""}>live</option><option ${match.status==="completed"?"selected":""}>completed</option></select></label>
@@ -1993,7 +2002,14 @@ function backupAdmin() {
 
 function scorecardInningsTabs(match, activeView) {
   const first = firstInningsInfo(match);
-  if (!first) return "";
+  const canShowNext = match.status === "live" && Number(match.innings) === 1;
+  if (!first && !canShowNext) return "";
+  if (canShowNext) {
+    return `<div class="scorecard-tabs" role="tablist" aria-label="Innings scorecard views">
+      <button class="scorecard-tab ${activeView === "current" ? "active" : ""}" data-action="open-scorecard-innings" data-id="${match.id}" data-innings-view="current" role="tab" aria-selected="${activeView === "current"}">Current Innings</button>
+      <button class="scorecard-tab ${activeView === "next" ? "active" : ""}" data-action="open-scorecard-innings" data-id="${match.id}" data-innings-view="next" role="tab" aria-selected="${activeView === "next"}">Next Innings</button>
+    </div>`;
+  }
   const previousLabel = match.status === "completed" ? `${teamName(first.teamId)} innings` : "Previous Innings";
   const currentLabel = match.status === "completed" ? `${teamName(match.battingTeamId)} innings` : "Current Innings";
   return `<div class="scorecard-tabs" role="tablist" aria-label="Innings scorecard views">
@@ -2023,6 +2039,39 @@ function resultScoreSummary(match) {
 
 function scorecardDetailView(match, activeView) {
   const first = firstInningsInfo(match);
+  if (activeView === "next" && match.status === "live" && Number(match.innings) === 1) {
+    const nextBattingTeamId = match.bowlingTeamId;
+    const nextBowlingTeamId = match.battingTeamId;
+    return `<div class="next-innings-view">
+      <div class="grid two player-detail-grid" style="margin-top:1rem">
+        <div class="card previous-innings-card">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">${esc(teamName(nextBattingTeamId))}</span>
+              <h3 class="panel-title">Next Innings Batting</h3>
+            </div>
+            <span class="pill">${esc(teamName(nextBattingTeamId))}</span>
+          </div>
+          <div class="player-summary-list">${batsmenSummaryForTeam(match, nextBattingTeamId) || `<p class="muted">No batting details recorded for the next innings yet.</p>`}</div>
+        </div>
+        <div class="card previous-innings-card">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">${esc(teamName(nextBowlingTeamId))}</span>
+              <h3 class="panel-title">Next Innings Bowling</h3>
+            </div>
+            <span class="pill">${esc(teamName(nextBowlingTeamId))}</span>
+          </div>
+          <div class="player-summary-list">${bowlersSummaryForTeam(match, nextBowlingTeamId) || `<p class="muted">No bowling details recorded for the next innings yet.</p>`}</div>
+          ${bowlingClaimScorecardPanel(match, nextBowlingTeamId)}
+        </div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3 class="panel-title">Next Innings Extras</h3>
+        <div class="player-detail-line"><span>${esc(teamName(nextBattingTeamId))}</span><strong class="orange">${extrasTotalForTeam(match, nextBattingTeamId)} runs</strong></div>
+      </div>
+    </div>`;
+  }
   if (activeView === "previous" && first) {
     const previousBowlingTeamId = opponentTeamId(match, first.teamId);
     return `<div class="previous-innings-view">
@@ -2084,7 +2133,8 @@ function openScorecard(matchId, activeView = "") {
   if (!match) return;
   const first = firstInningsInfo(match);
   const initialView = activeView || (match.status === "completed" && first ? "previous" : "current");
-  const view = initialView === "previous" && first ? "previous" : "current";
+  const canShowNext = match.status === "live" && Number(match.innings) === 1;
+  const view = initialView === "previous" && first ? "previous" : (initialView === "next" && canShowNext ? "next" : "current");
   const score = scoreOf(match);
   const target = targetInfo(match);
   const openingPanel = (teamId) => match.status === "live" ? openingBatsmenPanel(match, teamId) : openingSetupPanel(match, teamId);
@@ -2092,6 +2142,11 @@ function openScorecard(matchId, activeView = "") {
     ? `<div class="grid two" style="margin-top:1rem">
         ${openingPanel(first.teamId)}
         ${selectedBowlersPanel(match, opponentTeamId(match, first.teamId))}
+      </div>`
+    : view === "next" && canShowNext
+      ? `<div class="grid two" style="margin-top:1rem">
+        ${openingPanel(match.bowlingTeamId)}
+        ${selectedBowlersPanel(match, match.battingTeamId)}
       </div>`
     : `<div class="grid two" style="margin-top:1rem">
         ${openingPanel(match.battingTeamId)}
